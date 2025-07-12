@@ -19,13 +19,13 @@ const FileCompressionManager = () => {
   // Fetch uploaded files
   const fetchFiles = async () => {
     try {
-      const response = await fetch('http://localhost:3000/list');
+      const response = await fetch('https://newup-4g3z.onrender.com/list');
       const fileList = await response.json();
 
       const filesWithInfo = await Promise.all(
         fileList.map(async (filename) => {
           try {
-            const infoResponse = await fetch(`http://localhost:3000/info/${filename}`);
+            const infoResponse = await fetch(`https://newup-4g3z.onrender.com/info/${filename}`);
             const info = await infoResponse.json();
             return { ...info, selected: false };
           } catch (error) {
@@ -51,7 +51,7 @@ const FileCompressionManager = () => {
   // Fetch compressed files
   const fetchCompressedFiles = async () => {
     try {
-      const response = await fetch('http://localhost:3000/compressed');
+      const response = await fetch('https://newup-4g3z.onrender.com/compressed');
       const compressedList = await response.json();
       setCompressedFiles(compressedList);
     } catch (error) {
@@ -87,7 +87,7 @@ const FileCompressionManager = () => {
   const compressFile = async (filename) => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:3000/compress/${filename}`, {
+      const response = await fetch(`https://newup-4g3z.onrender.com/compress/${filename}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -128,7 +128,7 @@ const FileCompressionManager = () => {
     }
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/compress-bulk', {
+      const response = await fetch('https://newup-4g3z.onrender.com/compress-bulk', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -439,7 +439,7 @@ const FileCompressionManager = () => {
 
                           {!result.error && result.downloadUrl && (
                             <a
-                              href={`http://localhost:3000${result.downloadUrl}`}
+                              href={`https://newup-4g3z.onrender.com${result.downloadUrl}`}
                               download
                               className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all duration-300 font-medium text-sm"
                             >

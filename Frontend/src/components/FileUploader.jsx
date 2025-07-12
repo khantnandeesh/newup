@@ -42,7 +42,7 @@ const FileUploader = () => {
 
   const fetchFiles = async () => {
     try {
-      const res = await fetch('http://localhost:3000/list');
+      const res = await fetch('https://newup-4g3z.onrender.com/list');
       const arr = await res.json();
       if (Array.isArray(arr)) setFiles(arr);
     } catch (e) {
@@ -75,9 +75,9 @@ const FileUploader = () => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (uploading) return;
-    
+
     const files = e.dataTransfer.files;
     if (files && files[0]) {
       upload(files[0]);
@@ -86,7 +86,7 @@ const FileUploader = () => {
 
   const handleFileSelect = (e) => {
     if (uploading) return;
-    
+
     const files = e.target.files;
     if (files && files[0]) {
       upload(files[0]);
@@ -166,7 +166,7 @@ const FileUploader = () => {
       pc.onicecandidate = async (e) => {
         if (e.candidate) {
           try {
-            await fetch('http://localhost:3000/signal', {
+            await fetch('https://newup-4g3z.onrender.com/signal', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -194,7 +194,7 @@ const FileUploader = () => {
       await pc.setLocalDescription(offer);
       addLog('Created offer');
 
-      const response = await fetch('http://localhost:3000/signal', {
+      const response = await fetch('https://newup-4g3z.onrender.com/signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -244,7 +244,7 @@ const FileUploader = () => {
 
         const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
         const base64 = btoa(String.fromCharCode(...new Uint8Array(chunk)));
-        
+
         channel.send(JSON.stringify({
           id: fileId,
           filename: file.name,
@@ -268,7 +268,7 @@ const FileUploader = () => {
   };
 
   const openVideoModal = (file) => {
-    const videoUrl = `http://localhost:3000/stream/${file}`;
+    const videoUrl = `https://newup-4g3z.onrender.com/stream/${file}`;
     setVideoModal({ open: true, file, url: videoUrl });
     setVideoState(prev => ({ ...prev, playing: false, currentTime: 0 }));
   };
@@ -354,7 +354,7 @@ const FileUploader = () => {
       <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black to-blue-900/20"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(120,119,198,0.1),transparent_50%)]"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(59,130,246,0.1),transparent_50%)]"></div>
-      
+
       <div className="relative z-10 p-6">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
@@ -376,14 +376,13 @@ const FileUploader = () => {
             {/* Main Upload Area */}
             <div className="lg:col-span-2">
               <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 mb-8">
-                <div 
-                  className={`relative border-2 border-dashed rounded-2xl p-16 text-center transition-all duration-500 ${
-                    dragActive 
-                      ? 'border-purple-400 bg-purple-500/10 scale-105' 
-                      : uploading 
-                        ? 'border-gray-600 bg-gray-800/20' 
-                        : 'border-gray-600 hover:border-purple-400 hover:bg-purple-500/5 hover:scale-105'
-                  }`}
+                <div
+                  className={`relative border-2 border-dashed rounded-2xl p-16 text-center transition-all duration-500 ${dragActive
+                    ? 'border-purple-400 bg-purple-500/10 scale-105'
+                    : uploading
+                      ? 'border-gray-600 bg-gray-800/20'
+                      : 'border-gray-600 hover:border-purple-400 hover:bg-purple-500/5 hover:scale-105'
+                    }`}
                   onDragEnter={handleDragEnter}
                   onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
@@ -397,7 +396,7 @@ const FileUploader = () => {
                     onChange={handleFileSelect}
                     disabled={uploading}
                   />
-                  
+
                   <div className="relative">
                     {uploading ? (
                       <div className="space-y-6">
@@ -411,7 +410,7 @@ const FileUploader = () => {
                           <p className="text-2xl font-bold mb-2">{Math.round(progress)}%</p>
                           <p className="text-lg text-gray-300">Uploading {currentFile}</p>
                           <div className="w-full bg-gray-700 rounded-full h-2 mt-4 overflow-hidden">
-                            <div 
+                            <div
                               className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300 ease-out"
                               style={{ width: `${progress}%` }}
                             />
@@ -447,9 +446,9 @@ const FileUploader = () => {
                     <div className="flex-1">
                       <h3 className="text-xl font-bold text-green-400 mb-2">Transfer Complete</h3>
                       <p className="text-green-300 mb-4">Your file is ready for download</p>
-                      <a 
-                        href={link} 
-                        target="_blank" 
+                      <a
+                        href={link}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white px-6 py-3 rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all duration-300 transform hover:scale-105"
                       >
@@ -471,7 +470,7 @@ const FileUploader = () => {
                       <h3 className="text-xl font-bold text-red-400 mb-2">Transfer Failed</h3>
                       <p className="text-red-300">{error}</p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setError('')}
                       className="text-red-400 hover:text-red-300 transition-colors"
                     >
@@ -544,8 +543,8 @@ const FileUploader = () => {
                                 <Play className="w-4 h-4 text-white" />
                               </button>
                             )}
-                            <a 
-                              href={`http://localhost:3000/f/${file}`} 
+                            <a
+                              href={`https://newup-4g3z.onrender.com/f/${file}`}
                               download
                               className="p-2 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg hover:from-purple-600 hover:to-blue-600 transition-all duration-300 transform hover:scale-110"
                               title="Download"
@@ -566,7 +565,7 @@ const FileUploader = () => {
 
       {/* Video Modal */}
       {videoModal.open && (
-        <div 
+        <div
           id="video-modal"
           className="fixed inset-0 bg-black/95 backdrop-blur-xl z-50 flex items-center justify-center p-4"
         >
@@ -586,8 +585,8 @@ const FileUploader = () => {
                 src={videoModal.url}
                 className="w-full h-auto max-h-[70vh] object-contain"
                 onTimeUpdate={(e) => {
-                  setVideoState(prev => ({ 
-                    ...prev, 
+                  setVideoState(prev => ({
+                    ...prev,
                     currentTime: e.target.currentTime,
                     buffered: e.target.buffered.length > 0 ? e.target.buffered.end(0) : 0
                   }));
@@ -626,7 +625,7 @@ const FileUploader = () => {
                     >
                       <SkipBack className="w-5 h-5 text-white" />
                     </button>
-                    
+
                     <button
                       onClick={togglePlay}
                       className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full hover:from-purple-600 hover:to-blue-600 transition-all duration-300 transform hover:scale-110"
@@ -637,7 +636,7 @@ const FileUploader = () => {
                         <Play className="w-6 h-6 text-white" />
                       )}
                     </button>
-                    
+
                     <button
                       onClick={() => skipTime(10)}
                       className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all duration-300"
@@ -714,7 +713,7 @@ const FileUploader = () => {
           border: none;
         }
       `}</style>
-      <FileCompressionManager/>
+      <FileCompressionManager />
     </div>
   );
 };
