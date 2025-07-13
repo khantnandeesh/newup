@@ -1,9 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Upload, Download, FileText, CheckCircle, AlertCircle, Loader2, X, 
-  Cloud, Play, Pause, Volume2, VolumeX, Maximize, Minimize, 
-  SkipBack, SkipForward, Eye, Trash2, Edit3, FolderOpen, 
+import {
+  Upload, Download, FileText, CheckCircle, AlertCircle, Loader2, X,
+  Cloud, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
+  SkipBack, SkipForward, Eye, Trash2, Edit3, FolderOpen,
   Monitor, Settings, Filter, Search, Grid, List
 } from 'lucide-react';
 import FileCompressionManager from './New';
@@ -51,7 +51,7 @@ const FileUploader = () => {
 
   const fetchFiles = async () => {
     try {
-      const res = await fetch('http://localhost:3000/list');
+      const res = await fetch('https://newup-4g3z.onrender.com/list');
       const arr = await res.json();
       console.log('Files from backend:', arr);
       if (Array.isArray(arr)) {
@@ -175,7 +175,7 @@ const FileUploader = () => {
           try {
             const response = JSON.parse(xhr.responseText);
             if (response.success) {
-              setLink(`http://localhost:3000${response.file.downloadUrl}`);
+              setLink(`https://newup-4g3z.onrender.com${response.file.downloadUrl}`);
               fetchFiles();
               addLog('Upload completed successfully');
               setProgress(100);
@@ -206,7 +206,7 @@ const FileUploader = () => {
         cleanup();
       });
 
-      xhr.open('POST', 'http://localhost:3000/upload');
+      xhr.open('POST', 'https://newup-4g3z.onrender.com/upload');
       xhr.send(formData);
 
     } catch (err) {
@@ -217,7 +217,7 @@ const FileUploader = () => {
   };
 
   const openVideoModal = (file) => {
-    const videoUrl = `http://localhost:3000/stream/${file}`;
+    const videoUrl = `https://newup-4g3z.onrender.com/stream/${file}`;
     setVideoModal({ open: true, file, url: videoUrl });
     setVideoState(prev => ({ ...prev, playing: false, currentTime: 0 }));
   };
@@ -324,7 +324,7 @@ const FileUploader = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:3000/file/${file.filename}/properties`);
+      const response = await fetch(`https://newup-4g3z.onrender.com/file/${file.filename}/properties`);
       const properties = await response.json();
       setSelectedFile(properties);
       setShowProperties(true);
@@ -344,7 +344,7 @@ const FileUploader = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:3000/file/${file.filename}`, {
+      const response = await fetch(`https://newup-4g3z.onrender.com/file/${file.filename}`, {
         method: 'DELETE'
       });
 
@@ -372,7 +372,7 @@ const FileUploader = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:3000/file/${file.filename}/rename`, {
+      const response = await fetch(`https://newup-4g3z.onrender.com/file/${file.filename}/rename`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newName: newFileName.trim() })
@@ -394,9 +394,9 @@ const FileUploader = () => {
 
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.originalName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterType === 'all' || 
-                         (filterType === 'video' && file.isVideo) ||
-                         (filterType === 'document' && !file.isVideo);
+    const matchesFilter = filterType === 'all' ||
+      (filterType === 'video' && file.isVideo) ||
+      (filterType === 'document' && !file.isVideo);
     return matchesSearch && matchesFilter;
   });
 
@@ -435,13 +435,12 @@ const FileUploader = () => {
             <div className="bg-white rounded-lg shadow-sm border">
               <div className="p-6">
                 <div
-                  className={`relative border-2 border-dashed rounded-lg p-12 text-center transition-all duration-200 ${
-                    dragActive
+                  className={`relative border-2 border-dashed rounded-lg p-12 text-center transition-all duration-200 ${dragActive
                       ? 'border-blue-400 bg-blue-50'
                       : uploading
-                      ? 'border-gray-300 bg-gray-50'
-                      : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                  }`}
+                        ? 'border-gray-300 bg-gray-50'
+                        : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                    }`}
                   onDragEnter={handleDragEnter}
                   onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
@@ -572,7 +571,7 @@ const FileUploader = () => {
                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
                       />
                     </div>
-                    
+
                     {/* Filter */}
                     <select
                       value={filterType}
@@ -618,10 +617,10 @@ const FileUploader = () => {
                     {filteredFiles.map((file) => (
                       <div
                         key={file.filename}
-                        className={`group ${viewMode === 'grid' 
-                          ? 'border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm bg-white transition-all duration-200' 
+                        className={`group ${viewMode === 'grid'
+                          ? 'border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm bg-white transition-all duration-200'
                           : 'flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-200 transition-all duration-200'
-                        }`}
+                          }`}
                       >
                         <div className={`flex items-center space-x-3 ${viewMode === 'grid' ? 'mb-3' : 'flex-1 min-w-0'}`}>
                           <div className={`flex-shrink-0 ${viewMode === 'grid' ? 'w-10 h-10' : 'w-8 h-8'} ${file.isVideo ? 'bg-blue-50' : 'bg-indigo-50'} rounded-lg flex items-center justify-center`}>
@@ -635,7 +634,7 @@ const FileUploader = () => {
                             </p>
                           </div>
                         </div>
-                        
+
                         <div className={`flex items-center space-x-2 ${viewMode === 'grid' ? 'opacity-0 group-hover:opacity-100' : ''} transition-opacity duration-200`}>
                           <button
                             onClick={() => viewFileProperties(file)}
@@ -644,7 +643,7 @@ const FileUploader = () => {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          
+
                           {file.isVideo && (
                             <button
                               onClick={() => openVideoModal(file.filename)}
@@ -654,16 +653,16 @@ const FileUploader = () => {
                               <Play className="w-4 h-4" />
                             </button>
                           )}
-                          
+
                           <a
-                            href={`http://localhost:3000/f/${file.filename}`}
+                            href={`https://newup-4g3z.onrender.com/f/${file.filename}`}
                             download
                             className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
                             title="Download"
                           >
                             <Download className="w-4 h-4" />
                           </a>
-                          
+
                           <button
                             onClick={() => deleteFile(file)}
                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
@@ -741,7 +740,7 @@ const FileUploader = () => {
                       <div className="bg-indigo-600 h-1.5 rounded-full" style={{ width: '100%' }}></div>
                     </div>
                   </div>
-                  
+
                   <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm text-gray-500">Video Files</span>
@@ -750,13 +749,13 @@ const FileUploader = () => {
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-1.5">
-                      <div 
-                        className="bg-blue-500 h-1.5 rounded-full" 
+                      <div
+                        className="bg-blue-500 h-1.5 rounded-full"
                         style={{ width: files.length ? `${(files.filter(f => f.isVideo).length / files.length) * 100}%` : '0%' }}
                       ></div>
                     </div>
                   </div>
-                  
+
                   <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm text-gray-500">Total Size</span>
@@ -775,7 +774,7 @@ const FileUploader = () => {
       {/* File Properties Modal */}
       {showProperties && selectedFile && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div 
+          <div
             className="relative w-full max-w-2xl bg-white rounded-2xl p-8 shadow-xl transform transition-all duration-300"
             onClick={(e) => e.stopPropagation()}
           >
@@ -857,7 +856,7 @@ const FileUploader = () => {
 
               <div className="flex justify-center space-x-4 pt-4 border-t border-gray-100">
                 <a
-                  href={`http://localhost:3000/f/${selectedFile.filename}`}
+                  href={`https://newup-4g3z.onrender.com/f/${selectedFile.filename}`}
                   download
                   className="inline-flex items-center space-x-2 bg-gradient-to-r from-indigo-500 to-blue-500 text-white px-6 py-3 rounded-lg hover:from-indigo-600 hover:to-blue-600 transition-all duration-200 shadow-sm"
                 >

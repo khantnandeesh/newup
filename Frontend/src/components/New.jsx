@@ -52,7 +52,7 @@ const SimpleFileCompression = () => {
   };
 
   // API base URL
-  const API_BASE = 'http://localhost:3000';
+  const API_BASE = 'https://newup-4g3z.onrender.com';
 
   // Fetch uploaded files
   const fetchFiles = async () => {
@@ -606,7 +606,7 @@ const SimpleFileCompression = () => {
             <div className="text-sm text-yellow-800">
               <p className="font-medium mb-1">Video Compression Note:</p>
               <p className="text-yellow-700">
-                Current video compression is basic and may affect playback quality. 
+                Current video compression is basic and may affect playback quality.
                 For production use, consider implementing FFmpeg for proper video encoding.
               </p>
             </div>
