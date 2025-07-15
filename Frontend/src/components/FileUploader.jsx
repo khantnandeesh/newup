@@ -65,7 +65,10 @@ const FileUploader = () => {
             };
           }
           if (item && typeof item === 'object' && item.filename && typeof item.filename === 'string') {
-            return item;
+            return {
+              ...item,
+              originalName: item.originalName || item.filename // Ensure originalName is used
+            };
           }
           console.warn('Invalid file object:', item);
           return null;
@@ -323,7 +326,7 @@ const FileUploader = () => {
       addLog('Invalid file object: missing or invalid filename');
       return;
     }
-    if (!confirm(`Are you sure you want to delete "${file.originalName}"?`)) {
+    if (!confirm(`Are you sure you want to delete "${file.originalName || file.filename}"?`)) {
       return;
     }
     try {
@@ -331,7 +334,7 @@ const FileUploader = () => {
         method: 'DELETE'
       });
       if (response.ok) {
-        addLog(`File deleted: ${file.originalName}`);
+        addLog(`File deleted: ${file.originalName || file.filename}`);
         fetchFiles();
       } else {
         const error = await response.json();
@@ -621,7 +624,7 @@ const FileUploader = () => {
                             {getFileIcon(file.originalName)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-900 truncate">{file.originalName}</p>
+                            <p className="font-medium text-gray-900 truncate">{file.originalName || file.filename}</p>
                             <p className="text-sm text-gray-500">
                               {formatFileSize(file.size)}
                               {file.isVideo && ' • Video'}
@@ -659,15 +662,6 @@ const FileUploader = () => {
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => compressFile(file, 50, 'auto')}
-                            className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors duration-200"
-                            title="Compress"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 15V4" />
-                            </svg>
                           </button>
                         </div>
                       </div>
@@ -782,7 +776,7 @@ const FileUploader = () => {
             <div className="space-y-6">
               <div className="text-center pb-4 border-b border-gray-100">
                 <h2 className="text-2xl font-bold text-gray-900 mb-1">File Properties</h2>
-                <p className="text-gray-500">{selectedFile.originalName}</p>
+                <p className="text-gray-500">{selectedFile.originalName || selectedFile.filename}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
@@ -807,7 +801,7 @@ const FileUploader = () => {
                 <div className="flex items-center space-x-3">
                   <input
                     type="text"
-                    value={renamingFile === selectedFile.filename ? newFileName : selectedFile.originalName}
+                    value={renamingFile === selectedFile.filename ? newFileName : selectedFile.originalName || selectedFile.filename}
                     onChange={(e) => setNewFileName(e.target.value)}
                     className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
                     disabled={renamingFile !== selectedFile.filename}
@@ -834,7 +828,7 @@ const FileUploader = () => {
                     <button
                       onClick={() => {
                         setRenamingFile(selectedFile.filename);
-                        setNewFileName(selectedFile.originalName);
+                        setNewFileName(selectedFile.originalName || selectedFile.filename);
                       }}
                       className="p-2 bg-indigo-100 text-indigo-600 rounded-lg hover:bg-indigo-200 transition-colors duration-200"
                       title="Rename File"
