@@ -36,9 +36,11 @@ const FileUploader = () => {
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
+
   const videoRef = useRef(null);
 
   const videoFormats = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.3gp'];
+
   const isVideoFile = (filename) => {
     return videoFormats.some(format => filename.toLowerCase().endsWith(format));
   };
@@ -137,12 +139,10 @@ const FileUploader = () => {
     let startTime = Date.now();
     let lastLoaded = 0;
     let lastTime = startTime;
-
     try {
       addLog(`Starting upload: ${file.name} (${Math.round(file.size / 1024)} KB)`);
       const formData = new FormData();
       formData.append('file', file);
-
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
@@ -160,7 +160,6 @@ const FileUploader = () => {
           lastTime = currentTime;
         }
       });
-
       xhr.addEventListener('load', () => {
         if (xhr.status === 200) {
           try {
@@ -184,19 +183,16 @@ const FileUploader = () => {
         }
         cleanup();
       });
-
       xhr.addEventListener('error', () => {
         setError('Network error during upload');
         addLog('Network error during upload');
         cleanup();
       });
-
       xhr.addEventListener('abort', () => {
         setError('Upload was cancelled');
         addLog('Upload was cancelled');
         cleanup();
       });
-
       xhr.open('POST', `${BACKEND_URL}/upload`);
       xhr.send(formData);
     } catch (err) {
@@ -383,7 +379,6 @@ const FileUploader = () => {
         },
         body: JSON.stringify({ percentage, format }),
       });
-
       if (response.ok) {
         const result = await response.json();
         addLog(`File compressed successfully: ${result.message}`);
@@ -990,12 +985,10 @@ const FileUploader = () => {
         .animate-fadeIn {
           animation: fadeIn 0.3s ease-out;
         }
-
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-
         .slider::-webkit-slider-thumb {
           appearance: none;
           width: 16px;
@@ -1005,7 +998,6 @@ const FileUploader = () => {
           cursor: pointer;
           box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
-
         .slider::-moz-range-thumb {
           width: 16px;
           height: 16px;
