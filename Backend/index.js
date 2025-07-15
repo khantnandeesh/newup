@@ -215,7 +215,7 @@ app.get("/list", async (req, res) => {
 // Download file endpoint
 app.get("/f/:filename", async (req, res) => {
   try {
-    const filename = req.params.filename;
+    const filename = decodeURIComponent(req.params.filename);
     const headParams = {
       Bucket: BUCKET_NAME,
       Key: filename
@@ -242,10 +242,149 @@ app.get("/f/:filename", async (req, res) => {
   }
 });
 
+// NEW: Stream video endpoint with range support
+app.get("/stream/:filename", async (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    
+    // Check if file exists and get metadata
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const fileSize = headResponse.ContentLength;
+    const contentType = headResponse.ContentType || getMimeType(filename);
+    
+    // Handle range requests for video streaming
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = (end - start) + 1;
+      
+      const getParams = {
+        Bucket: BUCKET_NAME,
+        Key: filename,
+        Range: `bytes=${start}-${end}`
+      };
+      
+      const response = await storjClient.send(new GetObjectCommand(getParams));
+      
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': contentType,
+        'Cache-Control': 'no-cache',
+      });
+      
+      response.Body.pipe(res);
+    } else {
+      // No range request, send entire file
+      const getParams = {
+        Bucket: BUCKET_NAME,
+        Key: filename
+      };
+      const response = await storjClient.send(new GetObjectCommand(getParams));
+      
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
+      });
+      
+      response.Body.pipe(res);
+    }
+  } catch (error) {
+    console.error("Stream error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to stream file" });
+    }
+  }
+});
+
+// NEW: File properties endpoint
+app.get("/file/:filename/properties", async (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    const fileInfo = {
+      filename: filename,
+      originalName: metadata.originalName || filename,
+      size: headResponse.ContentLength,
+      sizeFormatted: formatFileSize(headResponse.ContentLength),
+      contentType: headResponse.ContentType,
+      lastModified: headResponse.LastModified,
+      uploadDate: metadata.uploadDate,
+      isVideo: isVideoFile(metadata.originalName || filename),
+      isImage: isImageFile(metadata.originalName || filename),
+      canCompress: isVideoFile(metadata.originalName || filename) || isImageFile(metadata.originalName || filename),
+      downloadUrl: `/f/${filename}`,
+      streamUrl: isVideoFile(metadata.originalName || filename) ? `/stream/${filename}` : null,
+      compressionCheckUrl: `/can-compress/${filename}`,
+      metadata: metadata
+    };
+    
+    res.json(fileInfo);
+  } catch (error) {
+    console.error("Properties error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to get file properties" });
+    }
+  }
+});
+
+// Download compressed file endpoint
+app.get("/compressed/:filename", async (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const headParams = {
+      Bucket: COMPRESSED_BUCKET,
+      Key: filename
+    };
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    const getParams = {
+      Bucket: COMPRESSED_BUCKET,
+      Key: filename
+    };
+    const response = await storjClient.send(new GetObjectCommand(getParams));
+    
+    res.setHeader('Content-Type', headResponse.ContentType || getMimeType(filename));
+    res.setHeader('Content-Length', headResponse.ContentLength);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    const stream = response.Body;
+    stream.pipe(res);
+  } catch (error) {
+    console.error("Compressed download error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "Compressed file not found" });
+    } else {
+      res.status(500).json({ error: "Failed to download compressed file" });
+    }
+  }
+});
+
 // Delete file endpoint
 app.delete("/file/:filename", async (req, res) => {
   try {
-    const filename = req.params.filename;
+    const filename = decodeURIComponent(req.params.filename);
     const deleteParams = {
       Bucket: BUCKET_NAME,
       Key: filename
@@ -265,7 +404,7 @@ app.delete("/file/:filename", async (req, res) => {
 // Compress file endpoint
 app.post("/compress/:filename", async (req, res) => {
   try {
-    const filename = req.params.filename;
+    const filename = decodeURIComponent(req.params.filename);
     const { percentage = 50, format = "auto" } = req.body;
     if (!filename || typeof filename !== "string" || filename.includes("..") || filename.includes("/")) {
       return res.status(400).json({ error: "Invalid filename" });
@@ -337,7 +476,7 @@ app.post("/compress/:filename", async (req, res) => {
 // Check if file can be compressed endpoint
 app.get("/can-compress/:filename", async (req, res) => {
   try {
-    const filename = req.params.filename;
+    const filename = decodeURIComponent(req.params.filename);
     if (!filename || typeof filename !== "string" || filename.includes("..") || filename.includes("/")) {
       return res.status(400).json({ error: "Invalid filename" });
     }
@@ -461,8 +600,9 @@ async function startServer() {
     console.log(`☁️ Using Storj.io for file storage`);
     console.log(`🪣 Main bucket: ${BUCKET_NAME}`);
     console.log(`🗜️ Compressed files bucket: ${COMPRESSED_BUCKET}`);
-    console.log(`🔍 Diagnostic endpoint: /diagnostic`);
-    console.log(`💚 Health check: /health`);
+    console.log(`🔍 Health check: /health`);
+    console.log(`📺 Video streaming: /stream/:filename`);
+    console.log(`📁 File properties: /file/:filename/properties`);
   });
 }
 
