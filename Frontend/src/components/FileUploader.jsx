@@ -6,6 +6,9 @@ import {
   Monitor, Settings, Filter, Search, Grid, List
 } from 'lucide-react';
 
+// Define the backend URL as a constant
+const BACKEND_URL = 'https://newup-4g3z.onrender.com';
+
 const FileUploader = () => {
   const [progress, setProgress] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
@@ -46,7 +49,7 @@ const FileUploader = () => {
 
   const fetchFiles = async () => {
     try {
-      const res = await fetch('https://your-backend-domain.com/list');
+      const res = await fetch(`${BACKEND_URL}/list`);
       const arr = await res.json();
       console.log('Files from backend:', arr);
       if (Array.isArray(arr)) {
@@ -160,7 +163,7 @@ const FileUploader = () => {
           try {
             const response = JSON.parse(xhr.responseText);
             if (response.success) {
-              setLink(`https://your-backend-domain.com${response.file.downloadUrl}`);
+              setLink(`${BACKEND_URL}${response.file.downloadUrl}`);
               fetchFiles();
               addLog('Upload completed successfully');
               setProgress(100);
@@ -191,7 +194,7 @@ const FileUploader = () => {
         cleanup();
       });
 
-      xhr.open('POST', 'https://your-backend-domain.com/upload');
+      xhr.open('POST', `${BACKEND_URL}/upload`);
       xhr.send(formData);
     } catch (err) {
       setError(err.message);
@@ -201,7 +204,7 @@ const FileUploader = () => {
   };
 
   const openVideoModal = (file) => {
-    const videoUrl = `https://your-backend-domain.com/stream/${file}`;
+    const videoUrl = `${BACKEND_URL}/stream/${file}`;
     setVideoModal({ open: true, file, url: videoUrl });
     setVideoState(prev => ({ ...prev, playing: false, currentTime: 0 }));
   };
@@ -306,7 +309,7 @@ const FileUploader = () => {
         addLog('Invalid file object: missing or invalid filename');
         return;
       }
-      const response = await fetch(`https://your-backend-domain.com/file/${file.filename}/properties`);
+      const response = await fetch(`${BACKEND_URL}/file/${file.filename}/properties`);
       const properties = await response.json();
       setSelectedFile(properties);
       setShowProperties(true);
@@ -324,7 +327,7 @@ const FileUploader = () => {
       return;
     }
     try {
-      const response = await fetch(`https://your-backend-domain.com/file/${file.filename}`, {
+      const response = await fetch(`${BACKEND_URL}/file/${file.filename}`, {
         method: 'DELETE'
       });
       if (response.ok) {
@@ -349,7 +352,7 @@ const FileUploader = () => {
       return;
     }
     try {
-      const response = await fetch(`https://your-backend-domain.com/file/${file.filename}/rename`, {
+      const response = await fetch(`${BACKEND_URL}/file/${file.filename}/rename`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newName: newFileName.trim() })
@@ -370,7 +373,7 @@ const FileUploader = () => {
 
   const compressFile = async (file, percentage, format) => {
     try {
-      const response = await fetch(`https://your-backend-domain.com/compress/${file.filename}`, {
+      const response = await fetch(`${BACKEND_URL}/compress/${file.filename}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -643,7 +646,7 @@ const FileUploader = () => {
                             </button>
                           )}
                           <a
-                            href={`https://your-backend-domain.com/f/${file.filename}`}
+                            href={`${BACKEND_URL}/f/${file.filename}`}
                             download
                             className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
                             title="Download"
@@ -843,7 +846,7 @@ const FileUploader = () => {
               </div>
               <div className="flex justify-center space-x-4 pt-4 border-t border-gray-100">
                 <a
-                  href={`https://your-backend-domain.com/f/${selectedFile.filename}`}
+                  href={`${BACKEND_URL}/f/${selectedFile.filename}`}
                   download
                   className="inline-flex items-center space-x-2 bg-gradient-to-r from-indigo-500 to-blue-500 text-white px-6 py-3 rounded-lg hover:from-indigo-600 hover:to-blue-600 transition-all duration-200 shadow-sm"
                 >
