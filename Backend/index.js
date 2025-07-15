@@ -1,37 +1,36 @@
 import express from "express";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-import fs from "fs/promises";
-import { createReadStream, statSync, existsSync } from "fs";
 import cors from "cors";
 import dotenv from "dotenv";
 import bodyParser from "body-parser";
 import sharp from "sharp";
 import multer from "multer";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Readable } from "stream";
+import crypto from "crypto";
 
 dotenv.config();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const app = express();
 app.use(cors());
 const port = process.env.PORT || 3000;
-const UPLOAD_DIR = join(__dirname, "uploads");
-const COMPRESSED_DIR = join(__dirname, "compressed");
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOAD_DIR);
+// Storj S3 Gateway Configuration
+const storjClient = new S3Client({
+  endpoint: "https://gateway.storjshare.io",
+  region: "us-east-1", // Required but not used by Storj
+  credentials: {
+    accessKeyId: "junoxqgyjo5fu2eczwle6non4ha", // Your Access Key
+    secretAccessKey: "jy5r7o3nm5kwlwnmtmyd2v57xewl3cbimrqh7q5vkarjwma3fvtzw" // Your Secret Key
   },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const ext = file.originalname.split(".").pop();
-    const filename = `${uniqueSuffix}.${ext}`;
-    cb(null, filename);
-  }
+  forcePathStyle: true,
 });
 
+const BUCKET_NAME = "file-storage"; // You can change this to your preferred bucket name
+const COMPRESSED_BUCKET = "compressed-files"; // Separate bucket for compressed files
+
+// Configure multer for memory storage (since we're uploading directly to Storj)
+const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
@@ -45,29 +44,12 @@ const upload = multer({
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// Ensure directories exist
-await fs.mkdir(UPLOAD_DIR, { recursive: true });
-await fs.mkdir(COMPRESSED_DIR, { recursive: true });
-
 // File type definitions
 const videoExtensions = [
-  ".mp4",
-  ".webm",
-  ".ogg",
-  ".mov",
-  ".avi",
-  ".mkv",
-  ".m4v",
-  ".3gp"
+  ".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4v", ".3gp"
 ];
 const imageExtensions = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".webp",
-  ".bmp",
-  ".tiff",
-  ".gif"
+  ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"
 ];
 
 // Helper functions
@@ -82,99 +64,386 @@ const isImageFile = (filename) => {
 const getMimeType = (filename) => {
   const ext = filename.toLowerCase().split(".").pop();
   const mimeTypes = {
-    mp4: "video/mp4",
-    webm: "video/webm",
-    ogg: "video/ogg",
-    mov: "video/quicktime",
-    avi: "video/x-msvideo",
-    mkv: "video/x-matroska",
-    m4v: "video/x-m4v",
-    "3gp": "video/3gpp",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    gif: "image/gif",
-    bmp: "image/bmp",
-    tiff: "image/tiff"
+    mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg",
+    mov: "video/quicktime", avi: "video/x-msvideo", mkv: "video/x-matroska",
+    m4v: "video/x-m4v", "3gp": "video/3gpp",
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+    webp: "image/webp", gif: "image/gif", bmp: "image/bmp", tiff: "image/tiff"
   };
   return mimeTypes[ext] || "application/octet-stream";
 };
 
-// Enhanced compression endpoint with percentage-based reduction
+// Helper function to generate unique filename
+const generateUniqueFilename = (originalName) => {
+  const timestamp = Date.now();
+  const randomSuffix = Math.round(Math.random() * 1e9);
+  const ext = originalName.split(".").pop();
+  return `${timestamp}-${randomSuffix}.${ext}`;
+};
+
+// Helper function to create bucket if it doesn't exist
+const ensureBucketExists = async (bucketName) => {
+  try {
+    await storjClient.send(new HeadObjectCommand({ Bucket: bucketName, Key: ".bucket-check" }));
+  } catch (error) {
+    if (error.name === 'NotFound') {
+      // Bucket doesn't exist, but we can't create it via S3 API with Storj
+      // User needs to create buckets via Storj console
+      console.warn(`Bucket ${bucketName} may not exist. Please create it in Storj console.`);
+    }
+  }
+};
+
+// Initialize buckets
+await ensureBucketExists(BUCKET_NAME);
+await ensureBucketExists(COMPRESSED_BUCKET);
+
+// Upload endpoint
+app.post("/upload", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const file = req.file;
+    const filename = generateUniqueFilename(file.originalname);
+    
+    // Upload file to Storj
+    const uploadParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      Metadata: {
+        originalName: file.originalname,
+        uploadDate: new Date().toISOString(),
+        mimetype: file.mimetype
+      }
+    };
+
+    await storjClient.send(new PutObjectCommand(uploadParams));
+
+    const fileInfo = {
+      filename: filename,
+      originalName: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+      uploadDate: new Date().toISOString(),
+      downloadUrl: `/f/${filename}`,
+      streamUrl: isVideoFile(file.originalname) ? `/stream/${filename}` : null,
+      canCompress: isVideoFile(file.originalname) || isImageFile(file.originalname),
+      compressionCheckUrl: `/can-compress/${filename}`
+    };
+
+    res.json({
+      success: true,
+      message: "File uploaded successfully",
+      file: fileInfo
+    });
+  } catch (error) {
+    console.error("Upload error:", error);
+    res.status(500).json({ error: "Failed to upload file: " + error.message });
+  }
+});
+
+// List uploaded files
+app.get("/list", async (req, res) => {
+  try {
+    const listParams = {
+      Bucket: BUCKET_NAME,
+      MaxKeys: 1000
+    };
+
+    const response = await storjClient.send(new ListObjectsV2Command(listParams));
+    
+    if (!response.Contents) {
+      return res.json([]);
+    }
+
+    const fileDetails = await Promise.all(
+      response.Contents.map(async (object) => {
+        try {
+          // Get object metadata
+          const headParams = {
+            Bucket: BUCKET_NAME,
+            Key: object.Key
+          };
+          
+          const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+          const metadata = headResponse.Metadata || {};
+          
+          return {
+            filename: object.Key,
+            originalName: metadata.originalName || object.Key,
+            size: object.Size,
+            created: object.LastModified,
+            modified: object.LastModified,
+            isVideo: isVideoFile(metadata.originalName || object.Key),
+            isImage: isImageFile(metadata.originalName || object.Key),
+            canCompress: isVideoFile(metadata.originalName || object.Key) || isImageFile(metadata.originalName || object.Key),
+            downloadUrl: `/f/${object.Key}`,
+            streamUrl: isVideoFile(metadata.originalName || object.Key) ? `/stream/${object.Key}` : null,
+            compressionCheckUrl: `/can-compress/${object.Key}`
+          };
+        } catch (error) {
+          console.error(`Error processing file ${object.Key}:`, error);
+          return null;
+        }
+      })
+    );
+
+    const validFileDetails = fileDetails.filter(file => file !== null);
+    res.json(validFileDetails);
+  } catch (error) {
+    console.error("Error listing files:", error);
+    res.status(500).json({ error: "Failed to list files" });
+  }
+});
+
+// Download original file
+app.get("/f/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Get object metadata first
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    // Get the file
+    const getParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const response = await storjClient.send(new GetObjectCommand(getParams));
+    
+    // Set headers
+    res.setHeader('Content-Type', headResponse.ContentType || 'application/octet-stream');
+    res.setHeader('Content-Length', headResponse.ContentLength);
+    res.setHeader('Content-Disposition', `attachment; filename="${metadata.originalName || filename}"`);
+    
+    // Stream the file
+    const stream = response.Body;
+    stream.pipe(res);
+    
+  } catch (error) {
+    console.error("Download error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to download file" });
+    }
+  }
+});
+
+// Video streaming endpoint
+app.get("/stream/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Get object metadata
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    if (!isVideoFile(metadata.originalName || filename)) {
+      return res.status(400).json({ error: "File is not a video" });
+    }
+    
+    const fileSize = headResponse.ContentLength;
+    const range = req.headers.range;
+    const mimeType = getMimeType(metadata.originalName || filename);
+    
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = end - start + 1;
+      
+      const getParams = {
+        Bucket: BUCKET_NAME,
+        Key: filename,
+        Range: `bytes=${start}-${end}`
+      };
+      
+      const response = await storjClient.send(new GetObjectCommand(getParams));
+      
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": mimeType
+      });
+      
+      response.Body.pipe(res);
+    } else {
+      const getParams = {
+        Bucket: BUCKET_NAME,
+        Key: filename
+      };
+      
+      const response = await storjClient.send(new GetObjectCommand(getParams));
+      
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": mimeType,
+        "Accept-Ranges": "bytes"
+      });
+      
+      response.Body.pipe(res);
+    }
+  } catch (error) {
+    console.error("Error streaming video:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "Video file not found" });
+    } else {
+      res.status(500).json({ error: "Failed to stream video" });
+    }
+  }
+});
+
+// Check if file can be compressed endpoint
+app.get("/can-compress/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    const originalName = metadata.originalName || filename;
+    const isVideo = isVideoFile(originalName);
+    const isImage = isImageFile(originalName);
+    const canCompress = isVideo || isImage;
+    
+    res.json({
+      filename: filename,
+      originalName: originalName,
+      canCompress: canCompress,
+      fileType: isVideo ? "video" : isImage ? "image" : "other",
+      size: headResponse.ContentLength,
+      sizeFormatted: formatFileSize(headResponse.ContentLength),
+      supportedPercentages: canCompress ? [20, 30, 40, 50, 60, 70, 80] : [],
+      supportedFormats: isImage
+        ? ["auto", "jpeg", "png", "webp"]
+        : isVideo
+        ? ["auto", "mp4", "webm"]
+        : [],
+      estimatedSavings: canCompress
+        ? {
+            "20%": Math.round(headResponse.ContentLength * 0.6),
+            "50%": Math.round(headResponse.ContentLength * 0.3),
+            "80%": Math.round(headResponse.ContentLength * 0.1)
+          }
+        : null
+    });
+  } catch (error) {
+    console.error("Error checking compression:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to check compression capability" });
+    }
+  }
+});
+
+// Enhanced compression endpoint
 app.post("/compress/:filename", async (req, res) => {
   try {
     const filename = req.params.filename;
     const { percentage = 50, format = "auto" } = req.body;
 
     // Validate inputs
-    if (
-      !filename ||
-      typeof filename !== "string" ||
-      filename.includes("..") ||
-      filename.includes("/")
-    ) {
+    if (!filename || typeof filename !== "string") {
       return res.status(400).json({ error: "Invalid filename" });
     }
 
     if (percentage < 10 || percentage > 90) {
-      return res
-        .status(400)
-        .json({ error: "Percentage must be between 10-90" });
+      return res.status(400).json({ error: "Percentage must be between 10-90" });
     }
 
-    const filePath = join(UPLOAD_DIR, filename);
-    if (!existsSync(filePath)) {
-      return res.status(404).json({ error: "File not found" });
-    }
-
-    const originalStat = statSync(filePath);
-    const isVideo = isVideoFile(filename);
-    const isImage = isImageFile(filename);
+    // Get original file from Storj
+    const getParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const response = await storjClient.send(new GetObjectCommand(getParams));
+    const headResponse = await storjClient.send(new HeadObjectCommand(getParams));
+    
+    const metadata = headResponse.Metadata || {};
+    const originalName = metadata.originalName || filename;
+    const isVideo = isVideoFile(originalName);
+    const isImage = isImageFile(originalName);
 
     // Check if file can be compressed
     if (!isVideo && !isImage) {
       return res.status(400).json({
         error: "File type not supported for compression",
         canCompress: false,
-        supportedTypes: [
-          "Images (JPG, PNG, WebP, etc.)",
-          "Videos (MP4, WebM, etc.)"
-        ]
+        supportedTypes: ["Images (JPG, PNG, WebP, etc.)", "Videos (MP4, WebM, etc.)"]
       });
     }
 
-    const compressedFilename = `compressed_${percentage}pct_${Date.now()}_${filename}`;
-    const compressedPath = join(COMPRESSED_DIR, compressedFilename);
+    // Convert stream to buffer
+    const chunks = [];
+    for await (const chunk of response.Body) {
+      chunks.push(chunk);
+    }
+    const fileBuffer = Buffer.concat(chunks);
 
+    const compressedFilename = `compressed_${percentage}pct_${Date.now()}_${filename}`;
     let compressionResult;
+    let compressedBuffer;
 
     if (isImage) {
-      compressionResult = await compressImage(
-        filePath,
-        compressedPath,
-        percentage,
-        format
-      );
+      const result = await compressImage(fileBuffer, percentage, format);
+      compressedBuffer = result.buffer;
+      compressionResult = result.info;
     } else if (isVideo) {
-      compressionResult = await compressVideo(
-        filePath,
-        compressedPath,
-        percentage,
-        format
-      );
+      const result = await compressVideo(fileBuffer, percentage, format);
+      compressedBuffer = result.buffer;
+      compressionResult = result.info;
     }
 
-    const compressedStat = statSync(compressedPath);
+    // Upload compressed file to Storj
+    const uploadParams = {
+      Bucket: COMPRESSED_BUCKET,
+      Key: compressedFilename,
+      Body: compressedBuffer,
+      ContentType: getMimeType(compressedFilename),
+      Metadata: {
+        originalFilename: filename,
+        originalName: originalName,
+        compressionPercentage: percentage.toString(),
+        compressionFormat: format,
+        compressedAt: new Date().toISOString()
+      }
+    };
+
+    await storjClient.send(new PutObjectCommand(uploadParams));
+
     const compressionRatio = (
-      ((originalStat.size - compressedStat.size) / originalStat.size) *
-      100
+      ((headResponse.ContentLength - compressedBuffer.length) / headResponse.ContentLength) * 100
     ).toFixed(2);
 
     res.json({
       success: true,
-      originalSize: originalStat.size,
-      compressedSize: compressedStat.size,
+      originalSize: headResponse.ContentLength,
+      compressedSize: compressedBuffer.length,
       compressionRatio: `${compressionRatio}%`,
       targetPercentage: `${percentage}%`,
       downloadUrl: `/compressed/${compressedFilename}`,
@@ -184,98 +453,215 @@ app.post("/compress/:filename", async (req, res) => {
       message: `File compressed to ${percentage}% quality. Saved ${compressionRatio}% space.`
     });
 
-    console.log(
-      `Compressed ${filename}: ${originalStat.size} → ${compressedStat.size} bytes (${compressionRatio}% reduction)`
-    );
+    console.log(`Compressed ${filename}: ${headResponse.ContentLength} → ${compressedBuffer.length} bytes (${compressionRatio}% reduction)`);
   } catch (error) {
     console.error("Compression error:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to compress file: " + error.message });
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to compress file: " + error.message });
+    }
   }
 });
 
-// Check if file can be compressed endpoint
-app.get("/can-compress/:filename", async (req, res) => {
+// Download compressed files
+app.get("/compressed/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    const headParams = {
+      Bucket: COMPRESSED_BUCKET,
+      Key: filename
+    };
+    
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+    
+    const getParams = {
+      Bucket: COMPRESSED_BUCKET,
+      Key: filename
+    };
+    
+    const response = await storjClient.send(new GetObjectCommand(getParams));
+    
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", headResponse.ContentType || "application/octet-stream");
+    res.setHeader("Content-Length", headResponse.ContentLength);
+    
+    response.Body.pipe(res);
+  } catch (error) {
+    console.error("Download compressed file error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "Compressed file not found" });
+    } else {
+      res.status(500).json({ error: "Failed to download compressed file" });
+    }
+  }
+});
+
+// Delete file endpoint
+app.delete("/file/:filename", async (req, res) => {
   try {
     const filename = req.params.filename;
 
-    if (
-      !filename ||
-      typeof filename !== "string" ||
-      filename.includes("..") ||
-      filename.includes("/")
-    ) {
+    if (!filename || typeof filename !== "string") {
       return res.status(400).json({ error: "Invalid filename" });
     }
 
-    const filePath = join(UPLOAD_DIR, filename);
-    if (!existsSync(filePath)) {
-      return res.status(404).json({ error: "File not found" });
-    }
+    const deleteParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
 
-    const isVideo = isVideoFile(filename);
-    const isImage = isImageFile(filename);
-    const canCompress = isVideo || isImage;
-
-    const stat = statSync(filePath);
-
-    // Get original filename from metadata
-    let originalName = filename;
-    try {
-      const metadataPath = join(UPLOAD_DIR, `${filename}.meta`);
-      if (existsSync(metadataPath)) {
-        const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-        originalName = metadata.originalName || filename;
-      }
-    } catch (err) {
-      // Use filename as fallback
-    }
-
+    await storjClient.send(new DeleteObjectCommand(deleteParams));
+    
     res.json({
-      filename: filename,
-      originalName: originalName,
-      canCompress: canCompress,
-      fileType: isVideo ? "video" : isImage ? "image" : "other",
-      size: stat.size,
-      sizeFormatted: formatFileSize(stat.size),
-      supportedPercentages: canCompress ? [20, 30, 40, 50, 60, 70, 80] : [],
-      supportedFormats: isImage
-        ? ["auto", "jpeg", "png", "webp"]
-        : isVideo
-        ? ["auto", "mp4", "webm"]
-        : [],
-      estimatedSavings: canCompress
-        ? {
-            "20%": Math.round(stat.size * 0.6),
-            "50%": Math.round(stat.size * 0.3),
-            "80%": Math.round(stat.size * 0.1)
-          }
-        : null
+      success: true,
+      message: "File deleted successfully",
+      filename: filename
     });
   } catch (error) {
-    console.error("Error checking compression:", error);
-    res.status(500).json({ error: "Failed to check compression capability" });
+    console.error("Error deleting file:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to delete file: " + error.message });
+    }
+  }
+});
+
+// Rename file endpoint
+app.put("/file/:filename/rename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const { newName } = req.body;
+
+    if (!filename || typeof filename !== "string") {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+
+    if (!newName || typeof newName !== "string" || newName.trim() === "") {
+      return res.status(400).json({ error: "Invalid new name" });
+    }
+
+    // Get the existing file
+    const getParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const response = await storjClient.send(new GetObjectCommand(getParams));
+    const headResponse = await storjClient.send(new HeadObjectCommand(getParams));
+    
+    // Convert stream to buffer
+    const chunks = [];
+    for await (const chunk of response.Body) {
+      chunks.push(chunk);
+    }
+    const fileBuffer = Buffer.concat(chunks);
+
+    // Generate new filename
+    const ext = filename.split(".").pop();
+    const newFilename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+
+    // Upload with new metadata
+    const uploadParams = {
+      Bucket: BUCKET_NAME,
+      Key: newFilename,
+      Body: fileBuffer,
+      ContentType: headResponse.ContentType,
+      Metadata: {
+        ...headResponse.Metadata,
+        originalName: newName.trim(),
+        renamedAt: new Date().toISOString()
+      }
+    };
+
+    await storjClient.send(new PutObjectCommand(uploadParams));
+
+    // Delete the old file
+    const deleteParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    await storjClient.send(new DeleteObjectCommand(deleteParams));
+
+    res.json({
+      success: true,
+      message: "File renamed successfully",
+      oldFilename: filename,
+      newFilename: newFilename,
+      newName: newName.trim()
+    });
+  } catch (error) {
+    console.error("Error renaming file:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to rename file: " + error.message });
+    }
+  }
+});
+
+// Get file properties endpoint
+app.get("/file/:filename/properties", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+
+    if (!filename || typeof filename !== "string") {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: filename
+    };
+    
+    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    const metadata = headResponse.Metadata || {};
+
+    const properties = {
+      filename: filename,
+      originalName: metadata.originalName || filename,
+      size: headResponse.ContentLength,
+      sizeFormatted: formatFileSize(headResponse.ContentLength),
+      created: headResponse.LastModified,
+      modified: headResponse.LastModified,
+      accessed: headResponse.LastModified,
+      mimetype: headResponse.ContentType || getMimeType(filename),
+      isVideo: isVideoFile(metadata.originalName || filename),
+      isImage: isImageFile(metadata.originalName || filename),
+      canCompress: isVideoFile(metadata.originalName || filename) || isImageFile(metadata.originalName || filename),
+      uploadDate: metadata.uploadDate,
+      renamedAt: metadata.renamedAt,
+      downloadUrl: `/f/${filename}`,
+      streamUrl: isVideoFile(metadata.originalName || filename) ? `/stream/${filename}` : null,
+      compressionCheckUrl: `/can-compress/${filename}`
+    };
+
+    res.json(properties);
+  } catch (error) {
+    console.error("Error getting file properties:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "File not found" });
+    } else {
+      res.status(500).json({ error: "Failed to get file properties: " + error.message });
+    }
   }
 });
 
 // Image compression function
-async function compressImage(
-  inputPath,
-  outputPath,
-  percentage,
-  format = "auto"
-) {
+async function compressImage(inputBuffer, percentage, format = "auto") {
   try {
     const quality = Math.max(10, Math.min(100, 100 - percentage + 10));
-    const ext = inputPath.toLowerCase().split(".").pop();
-
-    let pipeline = sharp(inputPath);
-
+    
+    let pipeline = sharp(inputBuffer);
+    
     // Auto-detect best format or use specified
-    let outputFormat =
-      format === "auto" ? (ext === "png" ? "png" : "jpeg") : format;
-
+    const metadata = await sharp(inputBuffer).metadata();
+    let outputFormat = format === "auto" ? (metadata.format === "png" ? "png" : "jpeg") : format;
+    
     // Apply format-specific compression
     if (outputFormat === "jpeg" || outputFormat === "jpg") {
       pipeline = pipeline.jpeg({
@@ -295,11 +681,10 @@ async function compressImage(
         effort: 6
       });
     }
-
+    
     // Reduce dimensions slightly for better compression
-    const metadata = await sharp(inputPath).metadata();
     const reductionFactor = Math.max(0.7, 1 - percentage / 200);
-
+    
     if (metadata.width && metadata.height) {
       const newWidth = Math.round(metadata.width * reductionFactor);
       const newHeight = Math.round(metadata.height * reductionFactor);
@@ -308,14 +693,17 @@ async function compressImage(
         withoutEnlargement: true
       });
     }
-
-    await pipeline.toFile(outputPath);
-
+    
+    const buffer = await pipeline.toBuffer();
+    
     return {
-      type: "image",
-      format: outputFormat,
-      quality: quality,
-      dimensionReduction: `${((1 - reductionFactor) * 100).toFixed(1)}%`
+      buffer: buffer,
+      info: {
+        type: "image",
+        format: outputFormat,
+        quality: quality,
+        dimensionReduction: `${((1 - reductionFactor) * 100).toFixed(1)}%`
+      }
     };
   } catch (error) {
     console.error("Image compression error:", error);
@@ -323,232 +711,36 @@ async function compressImage(
   }
 }
 
-// Simple video compression function (without FFMPEG)
-async function compressVideo(
-  inputPath,
-  outputPath,
-  percentage,
-  format = "auto"
-) {
+// Simple video compression function
+async function compressVideo(inputBuffer, percentage, format = "auto") {
   try {
-    // For video files, we'll create a simple approach using file chunking
-    // This is a basic implementation - for production, consider using a proper video processing library
-
-    const inputBuffer = await fs.readFile(inputPath);
     const targetSize = Math.floor(inputBuffer.length * (1 - percentage / 100));
-
-    // Simple compression by reducing file size through selective frame removal
-    // This is a very basic approach - in production, use proper video compression
+    
+    // Simple compression by reducing file size through selective data removal
     const chunkSize = Math.floor(inputBuffer.length / targetSize);
     const compressedBuffer = Buffer.alloc(targetSize);
-
+    
     let writeIndex = 0;
-    for (
-      let i = 0;
-      i < inputBuffer.length && writeIndex < targetSize;
-      i += chunkSize
-    ) {
-      const chunk = inputBuffer.slice(
-        i,
-        Math.min(i + Math.floor(chunkSize * 0.8), inputBuffer.length)
-      );
+    for (let i = 0; i < inputBuffer.length && writeIndex < targetSize; i += chunkSize) {
+      const chunk = inputBuffer.slice(i, Math.min(i + Math.floor(chunkSize * 0.8), inputBuffer.length));
       chunk.copy(compressedBuffer, writeIndex);
       writeIndex += chunk.length;
     }
-
-    await fs.writeFile(outputPath, compressedBuffer.slice(0, writeIndex));
-
+    
     return {
-      type: "video",
-      format: format === "auto" ? "compressed" : format,
-      method: "chunk-reduction",
-      note: "Basic compression applied. For better results, use dedicated video processing."
+      buffer: compressedBuffer.slice(0, writeIndex),
+      info: {
+        type: "video",
+        format: format === "auto" ? "compressed" : format,
+        method: "chunk-reduction",
+        note: "Basic compression applied. For better results, use dedicated video processing."
+      }
     };
   } catch (error) {
     console.error("Video compression error:", error);
     throw new Error(`Video compression failed: ${error.message}`);
   }
 }
-
-// File upload endpoint
-app.post("/upload", upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    const file = req.file;
-    const metadata = {
-      originalName: file.originalname,
-      uploadDate: new Date().toISOString(),
-      mimetype: file.mimetype
-    };
-
-    try {
-      await fs.writeFile(
-        join(UPLOAD_DIR, `${file.filename}.meta`),
-        JSON.stringify(metadata, null, 2)
-      );
-    } catch (err) {
-      console.error("Failed to save metadata:", err);
-    }
-
-    const fileInfo = {
-      filename: file.filename,
-      originalName: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype,
-      uploadDate: new Date().toISOString(),
-      downloadUrl: `/f/${file.filename}`,
-      streamUrl: isVideoFile(file.originalname)
-        ? `/stream/${file.filename}`
-        : null,
-      canCompress:
-        isVideoFile(file.originalname) || isImageFile(file.originalname),
-      compressionCheckUrl: `/can-compress/${file.filename}`
-    };
-
-    res.json({
-      success: true,
-      message: "File uploaded successfully",
-      file: fileInfo
-    });
-  } catch (error) {
-    console.error("Upload error:", error);
-    res.status(500).json({ error: "Failed to upload file: " + error.message });
-  }
-});
-
-// List uploaded files
-app.get("/list", async (req, res) => {
-  try {
-    const files = await fs.readdir(UPLOAD_DIR);
-    const actualFiles = files.filter((filename) => !filename.endsWith(".meta"));
-
-    const fileDetails = await Promise.all(
-      actualFiles.map(async (filename) => {
-        const filePath = join(UPLOAD_DIR, filename);
-
-        let stat;
-        try {
-          stat = statSync(filePath);
-        } catch (err) {
-          return null;
-        }
-
-        let originalName = filename;
-        try {
-          const metadataPath = join(UPLOAD_DIR, `${filename}.meta`);
-          if (existsSync(metadataPath)) {
-            const metadata = JSON.parse(
-              await fs.readFile(metadataPath, "utf8")
-            );
-            originalName = metadata.originalName || filename;
-          }
-        } catch (err) {
-          // Use filename as fallback
-        }
-
-        return {
-          filename: filename,
-          originalName: originalName,
-          size: stat.size,
-          created: stat.birthtime,
-          modified: stat.mtime,
-          isVideo: isVideoFile(originalName),
-          isImage: isImageFile(originalName),
-          canCompress: isVideoFile(originalName) || isImageFile(originalName),
-          downloadUrl: `/f/${filename}`,
-          streamUrl: isVideoFile(originalName) ? `/stream/${filename}` : null,
-          compressionCheckUrl: `/can-compress/${filename}`
-        };
-      })
-    );
-
-    const validFileDetails = fileDetails.filter((file) => file !== null);
-    res.json(validFileDetails);
-  } catch (error) {
-    console.error("Error listing files:", error);
-    res.status(500).json({ error: "Failed to list files" });
-  }
-});
-
-// Download compressed files
-app.get("/compressed/:filename", (req, res) => {
-  const filename = req.params.filename;
-  const filePath = join(COMPRESSED_DIR, filename);
-
-  if (!existsSync(filePath)) {
-    return res.status(404).json({ error: "Compressed file not found" });
-  }
-
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.setHeader("Content-Type", "application/octet-stream");
-  createReadStream(filePath).pipe(res);
-});
-
-// Download original file
-app.get("/f/:filename", async (req, res) => {
-  const filePath = join(UPLOAD_DIR, req.params.filename);
-  try {
-    await fs.access(filePath);
-    res.sendFile(filePath);
-  } catch (error) {
-    res.status(404).json({ error: "File not found" });
-  }
-});
-
-// Video streaming endpoint
-app.get("/stream/:filename", (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = join(UPLOAD_DIR, filename);
-
-    let stat;
-    try {
-      stat = statSync(filePath);
-    } catch (error) {
-      return res.status(404).json({ error: "Video file not found" });
-    }
-
-    if (!isVideoFile(filename)) {
-      return res.status(400).json({ error: "File is not a video" });
-    }
-
-    const fileSize = stat.size;
-    const range = req.headers.range;
-    const mimeType = getMimeType(filename);
-
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = end - start + 1;
-
-      const stream = createReadStream(filePath, { start, end });
-
-      res.writeHead(206, {
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": chunksize,
-        "Content-Type": mimeType
-      });
-
-      stream.pipe(res);
-    } else {
-      res.writeHead(200, {
-        "Content-Length": fileSize,
-        "Content-Type": mimeType,
-        "Accept-Ranges": "bytes"
-      });
-
-      createReadStream(filePath).pipe(res);
-    }
-  } catch (error) {
-    console.error("Error streaming video:", error);
-    res.status(500).json({ error: "Failed to stream video" });
-  }
-});
 
 // Helper function to format file size
 function formatFileSize(bytes) {
@@ -559,200 +751,14 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-// Delete file endpoint
-app.delete("/file/:filename", async (req, res) => {
-  try {
-    const filename = req.params.filename;
-
-    // Validate filename
-    if (
-      !filename ||
-      typeof filename !== "string" ||
-      filename.includes("..") ||
-      filename.includes("/")
-    ) {
-      return res.status(400).json({ error: "Invalid filename" });
-    }
-
-    const filePath = join(UPLOAD_DIR, filename);
-    const metadataPath = join(UPLOAD_DIR, `${filename}.meta`);
-
-    // Check if file exists
-    if (!existsSync(filePath)) {
-      return res.status(404).json({ error: "File not found" });
-    }
-
-    // Delete the main file
-    await fs.unlink(filePath);
-    console.log(`Deleted file: ${filename}`);
-
-    // Delete metadata file if it exists
-    if (existsSync(metadataPath)) {
-      try {
-        await fs.unlink(metadataPath);
-        console.log(`Deleted metadata: ${filename}.meta`);
-      } catch (err) {
-        console.warn(`Failed to delete metadata for ${filename}:`, err);
-      }
-    }
-
-    res.json({
-      success: true,
-      message: "File deleted successfully",
-      filename: filename
-    });
-  } catch (error) {
-    console.error("Error deleting file:", error);
-    res.status(500).json({ error: "Failed to delete file: " + error.message });
-  }
-});
-
-// Rename file endpoint
-app.put("/file/:filename/rename", async (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const { newName } = req.body;
-
-    // Validate inputs
-    if (
-      !filename ||
-      typeof filename !== "string" ||
-      filename.includes("..") ||
-      filename.includes("/")
-    ) {
-      return res.status(400).json({ error: "Invalid filename" });
-    }
-
-    if (!newName || typeof newName !== "string" || newName.trim() === "") {
-      return res.status(400).json({ error: "Invalid new name" });
-    }
-
-    const oldFilePath = join(UPLOAD_DIR, filename);
-    const oldMetadataPath = join(UPLOAD_DIR, `${filename}.meta`);
-
-    // Check if file exists
-    if (!existsSync(oldFilePath)) {
-      return res.status(404).json({ error: "File not found" });
-    }
-
-    // Generate new filename with same extension
-    const ext = filename.split(".").pop();
-    const newFilename = `${Date.now()}-${Math.round(
-      Math.random() * 1e9
-    )}.${ext}`;
-    const newFilePath = join(UPLOAD_DIR, newFilename);
-    const newMetadataPath = join(UPLOAD_DIR, `${newFilename}.meta`);
-
-    // Rename the main file
-    await fs.rename(oldFilePath, newFilePath);
-    console.log(`Renamed file: ${filename} -> ${newFilename}`);
-
-    // Update metadata file if it exists
-    if (existsSync(oldMetadataPath)) {
-      try {
-        const metadata = JSON.parse(await fs.readFile(oldMetadataPath, "utf8"));
-        metadata.originalName = newName.trim();
-        metadata.renamedAt = new Date().toISOString();
-
-        await fs.writeFile(newMetadataPath, JSON.stringify(metadata, null, 2));
-        await fs.unlink(oldMetadataPath);
-        console.log(`Updated metadata for renamed file: ${newFilename}`);
-      } catch (err) {
-        console.warn(`Failed to update metadata for ${filename}:`, err);
-      }
-    } else {
-      // Create new metadata if it doesn't exist
-      const metadata = {
-        originalName: newName.trim(),
-        renamedAt: new Date().toISOString()
-      };
-      await fs.writeFile(newMetadataPath, JSON.stringify(metadata, null, 2));
-    }
-
-    res.json({
-      success: true,
-      message: "File renamed successfully",
-      oldFilename: filename,
-      newFilename: newFilename,
-      newName: newName.trim()
-    });
-  } catch (error) {
-    console.error("Error renaming file:", error);
-    res.status(500).json({ error: "Failed to rename file: " + error.message });
-  }
-});
-
-// Get file properties endpoint
-app.get("/file/:filename/properties", async (req, res) => {
-  try {
-    const filename = req.params.filename;
-
-    // Validate filename
-    if (
-      !filename ||
-      typeof filename !== "string" ||
-      filename.includes("..") ||
-      filename.includes("/")
-    ) {
-      return res.status(400).json({ error: "Invalid filename" });
-    }
-
-    const filePath = join(UPLOAD_DIR, filename);
-    const metadataPath = join(UPLOAD_DIR, `${filename}.meta`);
-
-    // Check if file exists
-    if (!existsSync(filePath)) {
-      return res.status(404).json({ error: "File not found" });
-    }
-
-    // Get file stats
-    const stat = statSync(filePath);
-
-    // Get metadata if it exists
-    let metadata = {};
-    if (existsSync(metadataPath)) {
-      try {
-        metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-      } catch (err) {
-        console.warn(`Failed to read metadata for ${filename}:`, err);
-      }
-    }
-
-    const properties = {
-      filename: filename,
-      originalName: metadata.originalName || filename,
-      size: stat.size,
-      sizeFormatted: formatFileSize(stat.size),
-      created: stat.birthtime,
-      modified: stat.mtime,
-      accessed: stat.atime,
-      mimetype: metadata.mimetype || getMimeType(filename),
-      isVideo: isVideoFile(filename),
-      isImage: isImageFile(filename),
-      canCompress: isVideoFile(filename) || isImageFile(filename),
-      uploadDate: metadata.uploadDate,
-      renamedAt: metadata.renamedAt,
-      downloadUrl: `/f/${filename}`,
-      streamUrl: isVideoFile(filename) ? `/stream/${filename}` : null,
-      compressionCheckUrl: `/can-compress/${filename}`
-    };
-
-    res.json(properties);
-  } catch (error) {
-    console.error("Error getting file properties:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to get file properties: " + error.message });
-  }
-});
-
 // Health check
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
-    uploadsDir: UPLOAD_DIR,
-    compressedDir: COMPRESSED_DIR
+    storage: "Storj.io",
+    bucket: BUCKET_NAME,
+    compressedBucket: COMPRESSED_BUCKET
   });
 });
 
@@ -764,9 +770,10 @@ app.use((error, req, res, next) => {
 
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
-  console.log(`📁 Upload directory: ${UPLOAD_DIR}`);
-  console.log(`🗜️  Compressed files directory: ${COMPRESSED_DIR}`);
-  console.log(`📱 Simple compression API available`);
+  console.log(`☁️  Using Storj.io for file storage`);
+  console.log(`🪣 Main bucket: ${BUCKET_NAME}`);
+  console.log(`🗜️  Compressed files bucket: ${COMPRESSED_BUCKET}`);
+  console.log(`📱 API endpoints remain the same`);
   console.log(`✅ Check compression: /can-compress/:filename`);
   console.log(`🎯 Compress with percentage: /compress/:filename`);
 });
