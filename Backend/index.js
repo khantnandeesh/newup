@@ -79,7 +79,8 @@ const generateUniqueFilename = (originalName) => {
   const timestamp = Date.now();
   const randomSuffix = Math.round(Math.random() * 1e9);
   const ext = extname(originalName);
-  return `${timestamp}-${randomSuffix}${ext}`;
+  const baseName = originalName.replace(ext, '');
+  return `${timestamp}-${randomSuffix}_${baseName}${ext}`;
 };
 
 // Ensure buckets exist
