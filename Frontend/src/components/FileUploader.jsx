@@ -1,14 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+complete code !import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload, Download, FileText, CheckCircle, AlertCircle, Loader2, X,
   Cloud, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Eye, Trash2, Edit3, FolderOpen,
   Monitor, Settings, Filter, Search, Grid, List
 } from 'lucide-react';
-
 // Define the backend URL as a constant
 const BACKEND_URL = 'https://newup-4g3z.onrender.com';
-
 const FileUploader = () => {
   const [progress, setProgress] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
@@ -36,19 +34,14 @@ const FileUploader = () => {
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
-
   const videoRef = useRef(null);
-
   const videoFormats = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.3gp'];
-
   const isVideoFile = (filename) => {
     return videoFormats.some(format => filename.toLowerCase().endsWith(format));
   };
-
   const addLog = (msg) => {
     setLog((l) => [...l, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
-
   const fetchFiles = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/list`);
@@ -82,28 +75,23 @@ const FileUploader = () => {
       console.error('Failed to fetch files:', e);
     }
   };
-
   useEffect(() => {
     fetchFiles();
   }, []);
-
   const handleDragEnter = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(true);
   };
-
   const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
   };
-
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
   };
-
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -114,7 +102,6 @@ const FileUploader = () => {
       upload(files[0]);
     }
   };
-
   const handleFileSelect = (e) => {
     if (uploading) return;
     const files = e.target.files;
@@ -122,12 +109,10 @@ const FileUploader = () => {
       upload(files[0]);
     }
   };
-
   const cleanup = () => {
     setUploading(false);
     setUploadSpeed(0);
   };
-
   const upload = async (file) => {
     setProgress(0);
     setUploadSpeed(0);
@@ -201,13 +186,11 @@ const FileUploader = () => {
       cleanup();
     }
   };
-
   const openVideoModal = (file) => {
     const videoUrl = `${BACKEND_URL}/stream/${file}`;
     setVideoModal({ open: true, file, url: videoUrl });
     setVideoState(prev => ({ ...prev, playing: false, currentTime: 0 }));
   };
-
   const closeVideoModal = () => {
     if (videoRef.current) {
       videoRef.current.pause();
@@ -215,7 +198,6 @@ const FileUploader = () => {
     setVideoModal({ open: false, file: null, url: '' });
     setVideoState(prev => ({ ...prev, playing: false, fullscreen: false }));
   };
-
   const togglePlay = () => {
     if (videoRef.current) {
       if (videoState.playing) {
@@ -226,14 +208,12 @@ const FileUploader = () => {
       setVideoState(prev => ({ ...prev, playing: !prev.playing }));
     }
   };
-
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !videoRef.current.muted;
       setVideoState(prev => ({ ...prev, muted: !prev.muted }));
     }
   };
-
   const handleVolumeChange = (e) => {
     const volume = parseFloat(e.target.value);
     if (videoRef.current) {
@@ -241,7 +221,6 @@ const FileUploader = () => {
       setVideoState(prev => ({ ...prev, volume, muted: volume === 0 }));
     }
   };
-
   const handleSeek = (e) => {
     const time = parseFloat(e.target.value);
     if (videoRef.current) {
@@ -249,13 +228,11 @@ const FileUploader = () => {
       setVideoState(prev => ({ ...prev, currentTime: time }));
     }
   };
-
   const skipTime = (seconds) => {
     if (videoRef.current) {
       videoRef.current.currentTime += seconds;
     }
   };
-
   const toggleFullscreen = () => {
     const modal = document.getElementById('video-modal');
     if (!videoState.fullscreen) {
@@ -269,20 +246,17 @@ const FileUploader = () => {
     }
     setVideoState(prev => ({ ...prev, fullscreen: !prev.fullscreen }));
   };
-
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
-
   const getFileIcon = (filename) => {
     if (isVideoFile(filename)) {
       return <Play className="w-4 h-4 text-blue-500" />;
     }
     return <FileText className="w-4 h-4 text-gray-500" />;
   };
-
   const formatSpeed = (bytesPerSecond) => {
     if (bytesPerSecond >= 1024 * 1024) {
       return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
@@ -292,7 +266,6 @@ const FileUploader = () => {
       return `${bytesPerSecond.toFixed(0)} B/s`;
     }
   };
-
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -300,7 +273,6 @@ const FileUploader = () => {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
-
   const viewFileProperties = async (file) => {
     try {
       console.log('Viewing properties for file:', file);
@@ -316,7 +288,6 @@ const FileUploader = () => {
       addLog('Failed to get file properties: ' + error.message);
     }
   };
-
   const deleteFile = async (file) => {
     if (!file || !file.filename || typeof file.filename !== 'string') {
       addLog('Invalid file object: missing or invalid filename');
@@ -340,7 +311,6 @@ const FileUploader = () => {
       addLog('Failed to delete file: ' + error.message);
     }
   };
-
   const renameFile = async (file) => {
     if (!file || !file.filename || typeof file.filename !== 'string') {
       addLog('Invalid file object: missing or invalid filename');
@@ -369,7 +339,6 @@ const FileUploader = () => {
       addLog('Failed to rename file: ' + error.message);
     }
   };
-
   const compressFile = async (file, percentage, format) => {
     try {
       const response = await fetch(`${BACKEND_URL}/compress/${file.filename}`, {
@@ -391,7 +360,6 @@ const FileUploader = () => {
       addLog('Failed to compress file: ' + error.message);
     }
   };
-
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.originalName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterType === 'all' ||
@@ -399,7 +367,6 @@ const FileUploader = () => {
       (filterType === 'document' && !file.isVideo);
     return matchesSearch && matchesFilter;
   });
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1011,5 +978,4 @@ const FileUploader = () => {
     </div>
   );
 };
-
 export default FileUploader;
