@@ -4,11 +4,12 @@ import dotenv from "dotenv";
 import bodyParser from "body-parser";
 import sharp from "sharp";
 import multer from "multer";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand, ListBucketsCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand, CreateBucketCommand, HeadBucketCommand } from "@aws-sdk/client-s3"; // FIXED: Added HeadBucketCommand
 import { Readable } from "stream";
-import crypto from "crypto";
-import { extname } from "path";
+import { extname, dirname, basename, join } from "path";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import fs from 'fs';
 
 dotenv.config();
 
@@ -21,95 +22,122 @@ const storjClient = new S3Client({
   endpoint: "https://gateway.storjshare.io",
   region: "us-east-1",
   credentials: {
-    accessKeyId: "jvkiwhhfpwesee4kf22l7rwbm2sa",
-    secretAccessKey: "j2exfjqioti3okvgjiek6ae4a3qmcbrte4amenkut2xdriieoh2ey"
+    accessKeyId: process.env.STORJ_ACCESS_KEY_ID,
+    secretAccessKey: process.env.STORJ_SECRET_ACCESS_KEY
   },
   forcePathStyle: true,
 });
 
 const BUCKET_NAME = process.env.STORJ_BUCKET || "file-storage";
 const COMPRESSED_BUCKET = process.env.STORJ_COMPRESSED_BUCKET || "compressed-files";
+const JWT_SECRET = process.env.JWT_SECRET || "your_super_secret_jwt_key_please_change_this";
+const USERS_DB_FILE = './users.json';
 
-// Configure multer for memory storage
+let users = {};
+if (fs.existsSync(USERS_DB_FILE)) {
+    users = JSON.parse(fs.readFileSync(USERS_DB_FILE, 'utf-8'));
+    console.log("Loaded users from", USERS_DB_FILE);
+}
+
+const saveUsers = () => {
+    fs.writeFileSync(USERS_DB_FILE, JSON.stringify(users, null, 2), 'utf-8');
+};
+
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 2 * 1024 * 1024 * 1024 // 2GB limit
-  },
-  fileFilter: (req, file, cb) => {
-    cb(null, true);
+    fileSize: 2 * 1024 * 1024 * 2000 // 2GB limit
   }
 });
 
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// File type definitions
-const videoExtensions = [
-  ".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4v", ".3gp"
-];
-const imageExtensions = [
-  ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"
-];
+const videoExtensions = [".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4v", ".3gp"];
+const imageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"];
+const documentExtensions = [".pdf", ".doc", ".docx", ".txt", ".xlsx", ".xls", ".ppt", ".pptx"];
+const audioExtensions = [".mp3", ".wav", ".aac", ".flac"];
+const codeExtensions = [".js", ".jsx", ".ts", ".tsx", ".py", ".java", ".c", ".cpp", ".html", ".css", ".json", ".xml"];
+const archiveExtensions = [".zip", ".rar", ".7z", ".tar", ".gz"];
+const spreadsheetExtensions = [".xls", ".xlsx", ".csv"];
 
-// Helper functions
-const isVideoFile = (filename) => {
-  return videoExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
-};
+const getFileExtension = (filename) => filename.toLowerCase().split('.').pop();
+const isVideoFile = (filename) => videoExtensions.includes('.' + getFileExtension(filename));
+const isImageFile = (filename) => imageExtensions.includes('.' + getFileExtension(filename));
+const isDocumentFile = (filename) => documentExtensions.includes('.' + getFileExtension(filename));
+const isAudioFile = (filename) => audioExtensions.includes('.' + getFileExtension(filename));
+const isCodeFile = (filename) => codeExtensions.includes('.' + getFileExtension(filename));
+const isArchiveFile = (filename) => archiveExtensions.includes('.' + getFileExtension(filename));
+const isSpreadsheetFile = (filename) => spreadsheetExtensions.includes('.' + getFileExtension(filename));
 
-const isImageFile = (filename) => {
-  return imageExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
-};
 
 const getMimeType = (filename) => {
-  const ext = filename.toLowerCase().split(".").pop();
+  const ext = getFileExtension(filename);
   const mimeTypes = {
-    mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg",
-    mov: "video/quicktime", avi: "video/x-msvideo", mkv: "video/x-matroska",
-    m4v: "video/x-m4v", "3gp": "video/3gpp",
-    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    webp: "image/webp", gif: "image/gif", bmp: "image/bmp", tiff: "image/tiff",
-    pdf: "application/pdf"
+    mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg", mov: "video/quicktime", avi: "video/x-msvideo", mkv: "video/x-matroska", m4v: "video/x-m4v", "3gp": "video/3gpp",
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", bmp: "image/bmp", tiff: "image/tiff",
+    pdf: "application/pdf", txt: "text/plain", html: "text/html", css: "text/css", js: "application/javascript", json: "application/json",
+    mp3: "audio/mpeg", wav: "audio/wav", aac: "audio/aac", flac: "audio/flac",
+    zip: "application/zip", rar: "application/x-rar-compressed", "7z": "application/x-7z-compressed", tar: "application/x-tar", gz: "application/gzip",
+    xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", csv: "text/csv",
+    py: "text/x-python", java: "text/x-java-source", c: "text/x-c", cpp: "text/x-c++src", ts: "application/typescript", tsx: "application/typescript", jsx: "text/jsx"
   };
   return mimeTypes[ext] || "application/octet-stream";
 };
 
-// Ensure buckets exist
+const normalizePath = (path) => {
+  if (!path) return '';
+  return path.replace(/^\/+|\/+$/g, '').replace(/\/\/+/g, '/');
+};
+
 const ensureBucketExists = async (bucketName) => {
   try {
-    const listBucketsCommand = new ListBucketsCommand({});
-    const buckets = await storjClient.send(listBucketsCommand);
-    const bucketNames = buckets.Buckets?.map(b => b.Name) || [];
-    if (bucketNames.includes(bucketName)) {
-      console.log(`✅ Bucket '${bucketName}' exists`);
-      return true;
-    }
-    console.log(`🔧 Creating bucket '${bucketName}'...`);
-    const createBucketCommand = new CreateBucketCommand({ Bucket: bucketName });
-    await storjClient.send(createBucketCommand);
-    console.log(`✅ Bucket '${bucketName}' created successfully`);
+    await storjClient.send(new HeadBucketCommand({ Bucket: bucketName }));
+    console.log(`✅ Bucket '${bucketName}' exists`);
     return true;
   } catch (error) {
-    console.error(`❌ Error with bucket '${bucketName}':`, error.message);
-    return false;
+    if (error.name === 'NotFound') {
+      console.log(`🔧 Creating bucket '${bucketName}'...`);
+      await storjClient.send(new CreateBucketCommand({ Bucket: bucketName }));
+      console.log(`✅ Bucket '${bucketName}' created successfully`);
+      return true;
+    }
+    throw error;
   }
 };
 
-// Test connection function
+const ensureVaultFolderExists = async (vaultPrefix) => {
+  const folderKey = vaultPrefix + '/';
+  try {
+    await storjClient.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: folderKey }));
+    return true;
+  } catch (error) {
+    if (error.name === 'NotFound') {
+      console.log(`Creating Storj folder for vault: ${vaultPrefix}`);
+      await storjClient.send(new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: folderKey,
+        Body: "",
+        ContentType: "application/x-directory",
+        Metadata: { isFolder: "true", vault: vaultPrefix }
+      }));
+      return true;
+    }
+    throw error;
+  }
+};
+
 const testConnection = async () => {
   console.log('🔍 Testing Storj connection...');
   try {
-    const listBucketsCommand = new ListBucketsCommand({});
-    const buckets = await storjClient.send(listBucketsCommand);
-    console.log('✅ Connection successful!');
-    console.log(`Available buckets: ${buckets.Buckets?.map(b => b.Name).join(', ') || 'None'}`);
     const mainBucketOk = await ensureBucketExists(BUCKET_NAME);
     const compressedBucketOk = await ensureBucketExists(COMPRESSED_BUCKET);
     if (!mainBucketOk || !compressedBucketOk) {
-      console.error('❌ Required buckets are not available');
+      console.error('❌ Required buckets are not available or could not be created.');
       return false;
     }
+    console.log('✅ Storj connection successful!');
     return true;
   } catch (error) {
     console.error('❌ Connection test failed:', error.message);
@@ -117,41 +145,120 @@ const testConnection = async () => {
   }
 };
 
-// Upload endpoint
-app.post("/upload", upload.single("file"), async (req, res) => {
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (token == null) return res.status(401).json({ error: "Authentication token required." });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error("JWT Verification Error:", err.message);
+      return res.status(403).json({ error: "Invalid or expired token." });
+    }
+    req.userVaultPrefix = user.vaultPrefix;
+    next();
+  });
+};
+
+app.post("/vault/register", async (req, res) => {
+  const { vaultNumber, passcode } = req.body;
+console.log(req.body);
+  if (!vaultNumber || !passcode) {
+    return res.status(400).json({ error: "Vault number and passcode are required." });
+  }
+
+  const vaultPrefix = `vault_${vaultNumber}`;
+
+  if (users[vaultPrefix]) {
+    return res.status(409).json({ error: "Vault number already exists. Please choose another or log in." });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(passcode, 10);
+    users[vaultPrefix] = { hashedPassword };
+    saveUsers();
+
+    await ensureVaultFolderExists(vaultPrefix);
+
+    const token = jwt.sign({ vaultPrefix }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ success: true, message: "Vault created and logged in.", token });
+  } catch (error) {
+    console.error("Vault registration error:", error);
+    res.status(500).json({ error: "Failed to create vault: " + error.message });
+  }
+});
+
+app.post("/vault/login", async (req, res) => {
+  const { vaultNumber, passcode } = req.body;
+
+  if (!vaultNumber || !passcode) {
+    return res.status(400).json({ error: "Vault number and passcode are required." });
+  }
+
+  const vaultPrefix = `vault_${vaultNumber}`;
+  const user = users[vaultPrefix];
+
+  if (!user) {
+    return res.status(401).json({ error: "Vault not found." });
+  }
+
+  try {
+    if (await bcrypt.compare(passcode, user.hashedPassword)) {
+      const token = jwt.sign({ vaultPrefix }, JWT_SECRET, { expiresIn: '30d' });
+      res.json({ success: true, message: "Logged in successfully.", token });
+    } else {
+      res.status(401).json({ error: "Invalid passcode." });
+    }
+  } catch (error) {
+    console.error("Vault login error:", error);
+    res.status(500).json({ error: "Failed to login: " + error.message });
+  }
+});
+
+app.get("/vault/check-auth", authenticateToken, (req, res) => {
+  res.json({ authenticated: true, vaultPrefix: req.userVaultPrefix });
+});
+
+app.post("/upload", authenticateToken, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
     const file = req.file;
-    const filename = file.originalname; // Use the original filename
+    const userVaultPrefix = req.userVaultPrefix;
+    const folderPath = req.body.folderPath ? normalizePath(req.body.folderPath) + '/' : '';
+    const originalFileName = file.originalname;
+    const filePathInBucket = `${userVaultPrefix}/${folderPath}${originalFileName}`;
 
-    // Upload file to Storj
     const uploadParams = {
       Bucket: BUCKET_NAME,
-      Key: filename,
+      Key: filePathInBucket,
       Body: file.buffer,
       ContentType: file.mimetype,
       Metadata: {
-        originalName: file.originalname,
+        originalName: originalFileName,
         uploadDate: new Date().toISOString(),
-        mimetype: file.mimetype
+        mimetype: file.mimetype,
+        folderPath: folderPath
       }
     };
 
     await storjClient.send(new PutObjectCommand(uploadParams));
 
     const fileInfo = {
-      filename: filename,
-      originalName: file.originalname,
+      path: filePathInBucket,
+      name: originalFileName,
+      originalName: originalFileName,
       size: file.size,
       mimetype: file.mimetype,
       uploadDate: new Date().toISOString(),
-      downloadUrl: `/f/${filename}`,
-      streamUrl: isVideoFile(file.originalname) ? `/stream/${filename}` : null,
-      canCompress: isVideoFile(file.originalname) || isImageFile(file.originalname),
-      compressionCheckUrl: `/can-compress/${filename}`
+      isFolder: false,
+      parentPath: folderPath.slice(0, -1),
+      downloadUrl: `/f/${encodeURIComponent(filePathInBucket)}`,
+      streamUrl: isVideoFile(originalFileName) ? `/stream/${encodeURIComponent(filePathInBucket)}` : null,
+      canCompress: isVideoFile(originalFileName) || isImageFile(originalFileName),
     };
 
     res.json({
@@ -165,71 +272,117 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-// List files endpoint
-app.get("/list", async (req, res) => {
+app.get("/list", authenticateToken, async (req, res) => {
   try {
+    const userVaultPrefix = req.userVaultPrefix;
+    const { prefix = '' } = req.query;
+    const normalizedPrefix = prefix ? normalizePath(prefix) + '/' : '';
+
     const listParams = {
       Bucket: BUCKET_NAME,
+      Prefix: `${userVaultPrefix}/${normalizedPrefix}`,
+      Delimiter: '/',
       MaxKeys: 1000
     };
+
     const response = await storjClient.send(new ListObjectsV2Command(listParams));
-    if (!response.Contents) {
-      return res.json([]);
+
+    const items = [];
+
+    (response.CommonPrefixes || []).forEach(commonPrefix => {
+      const fullFolderPath = normalizePath(commonPrefix.Prefix);
+      const relativeFolderPath = fullFolderPath.substring(userVaultPrefix.length + 1);
+      const folderName = relativeFolderPath.split('/').pop();
+
+      if (folderName) {
+        items.push({
+          path: fullFolderPath,
+          name: folderName,
+          isFolder: true,
+          size: 0,
+          created: null,
+          modified: null,
+        });
+      }
+    });
+
+    (response.Contents || []).forEach(object => {
+      if (object.Key === `${userVaultPrefix}/` || object.Key.endsWith('/')) {
+        return;
+      }
+
+      const fileName = basename(object.Key);
+      const fileFullPath = object.Key;
+
+      items.push({
+        path: fileFullPath,
+        name: fileName,
+        originalName: object.Metadata?.originalName || fileName,
+        size: object.Size,
+        created: object.LastModified,
+        modified: object.LastModified,
+        isVideo: isVideoFile(fileName),
+        isImage: isImageFile(fileName),
+        isDocument: isDocumentFile(fileName),
+        isAudio: isAudioFile(fileName),
+        isCode: isCodeFile(fileName),
+        isArchive: isArchiveFile(fileName),
+        isSpreadsheet: isSpreadsheetFile(fileName),
+        isFolder: false,
+        downloadUrl: `/f/${encodeURIComponent(fileFullPath)}`,
+        streamUrl: isVideoFile(fileName) ? `/stream/${encodeURIComponent(fileFullPath)}` : null,
+      });
+    });
+
+    const currentDisplayPath = normalizedPrefix.slice(0, -1);
+    let parentDisplayPath = null;
+    if (currentDisplayPath) {
+      const lastSlashIndex = currentDisplayPath.lastIndexOf('/');
+      if (lastSlashIndex !== -1) {
+        parentDisplayPath = currentDisplayPath.substring(0, lastSlashIndex);
+      } else {
+        parentDisplayPath = '';
+      }
     }
-    const fileDetails = await Promise.all(
-      response.Contents.map(async (object) => {
-        try {
-          const headParams = {
-            Bucket: BUCKET_NAME,
-            Key: object.Key
-          };
-          const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
-          const metadata = headResponse.Metadata || {};
-          return {
-            filename: object.Key,
-            originalName: metadata.originalName || object.Key,
-            size: object.Size,
-            created: object.LastModified,
-            modified: object.LastModified,
-            isVideo: isVideoFile(metadata.originalName || object.Key),
-            isImage: isImageFile(metadata.originalName || object.Key),
-            canCompress: isVideoFile(metadata.originalName || object.Key) || isImageFile(metadata.originalName || object.Key),
-            downloadUrl: `/f/${object.Key}`,
-            streamUrl: isVideoFile(metadata.originalName || object.Key) ? `/stream/${object.Key}` : null,
-            compressionCheckUrl: `/can-compress/${object.Key}`
-          };
-        } catch (error) {
-          console.error(`Error processing file ${object.Key}:`, error);
-          return null;
-        }
-      })
-    );
-    const validFileDetails = fileDetails.filter(file => file !== null);
-    res.json(validFileDetails);
+
+    res.json({
+      items,
+      currentPath: currentDisplayPath,
+      parentPath: parentDisplayPath
+    });
   } catch (error) {
     console.error("Error listing files:", error);
     res.status(500).json({ error: "Failed to list files: " + error.message });
   }
 });
 
-// Download file endpoint
-app.get("/f/:filename", async (req, res) => {
+app.get("/f/:filepath(*)", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
+
+    if (!requestedFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. File is not in your vault." });
+    }
+
     const headParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: requestedFilePath
     };
     const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
     const metadata = headResponse.Metadata || {};
+    const originalFileName = metadata.originalName || basename(requestedFilePath);
+
     const getParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: requestedFilePath
     };
     const response = await storjClient.send(new GetObjectCommand(getParams));
-    res.setHeader('Content-Type', headResponse.ContentType || getMimeType(filename));
+
+    res.setHeader('Content-Type', headResponse.ContentType || getMimeType(originalFileName));
     res.setHeader('Content-Length', headResponse.ContentLength);
-    res.setHeader('Content-Disposition', `attachment; filename="${metadata.originalName || filename}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${originalFileName}"`);
+
     const stream = response.Body;
     stream.pipe(res);
   } catch (error) {
@@ -242,36 +395,38 @@ app.get("/f/:filename", async (req, res) => {
   }
 });
 
-// NEW: Stream video endpoint with range support
-app.get("/stream/:filename", async (req, res) => {
+app.get("/stream/:filepath(*)", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
-    
-    // Check if file exists and get metadata
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
+
+    if (!requestedFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Video is not in your vault." });
+    }
+
     const headParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: requestedFilePath
     };
     const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
     const fileSize = headResponse.ContentLength;
-    const contentType = headResponse.ContentType || getMimeType(filename);
-    
-    // Handle range requests for video streaming
+    const contentType = headResponse.ContentType || getMimeType(requestedFilePath);
+
     const range = req.headers.range;
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = (end - start) + 1;
-      
+
       const getParams = {
         Bucket: BUCKET_NAME,
-        Key: filename,
+        Key: requestedFilePath,
         Range: `bytes=${start}-${end}`
       };
-      
+
       const response = await storjClient.send(new GetObjectCommand(getParams));
-      
+
       res.writeHead(206, {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
@@ -279,23 +434,22 @@ app.get("/stream/:filename", async (req, res) => {
         'Content-Type': contentType,
         'Cache-Control': 'no-cache',
       });
-      
+
       response.Body.pipe(res);
     } else {
-      // No range request, send entire file
       const getParams = {
         Bucket: BUCKET_NAME,
-        Key: filename
+        Key: requestedFilePath
       };
       const response = await storjClient.send(new GetObjectCommand(getParams));
-      
+
       res.writeHead(200, {
         'Content-Length': fileSize,
         'Content-Type': contentType,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
       });
-      
+
       response.Body.pipe(res);
     }
   } catch (error) {
@@ -308,35 +462,44 @@ app.get("/stream/:filename", async (req, res) => {
   }
 });
 
-// NEW: File properties endpoint
-app.get("/file/:filename/properties", async (req, res) => {
+app.get("/file/:filepath(*)/properties", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
-    
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
+
+    if (!requestedFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Not in your vault." });
+    }
+
     const headParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: requestedFilePath
     };
     const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
     const metadata = headResponse.Metadata || {};
-    
+    const fileName = basename(requestedFilePath);
+
     const fileInfo = {
-      filename: filename,
-      originalName: metadata.originalName || filename,
+      path: requestedFilePath,
+      name: fileName,
+      originalName: metadata.originalName || fileName,
       size: headResponse.ContentLength,
-      sizeFormatted: formatFileSize(headResponse.ContentLength),
       contentType: headResponse.ContentType,
+      created: headResponse.LastModified,
       lastModified: headResponse.LastModified,
-      uploadDate: metadata.uploadDate,
-      isVideo: isVideoFile(metadata.originalName || filename),
-      isImage: isImageFile(metadata.originalName || filename),
-      canCompress: isVideoFile(metadata.originalName || filename) || isImageFile(metadata.originalName || filename),
-      downloadUrl: `/f/${filename}`,
-      streamUrl: isVideoFile(metadata.originalName || filename) ? `/stream/${filename}` : null,
-      compressionCheckUrl: `/can-compress/${filename}`,
+      isVideo: isVideoFile(fileName),
+      isImage: isImageFile(fileName),
+      isDocument: isDocumentFile(fileName),
+      isAudio: isAudioFile(fileName),
+      isCode: isCodeFile(fileName),
+      isArchive: isArchiveFile(fileName),
+      isSpreadsheet: isSpreadsheetFile(fileName),
+      canCompress: isVideoFile(fileName) || isImageFile(fileName),
+      downloadUrl: `/f/${encodeURIComponent(requestedFilePath)}`,
+      streamUrl: isVideoFile(fileName) ? `/stream/${encodeURIComponent(requestedFilePath)}` : null,
       metadata: metadata
     };
-    
+
     res.json(fileInfo);
   } catch (error) {
     console.error("Properties error:", error);
@@ -348,78 +511,171 @@ app.get("/file/:filename/properties", async (req, res) => {
   }
 });
 
-// Download compressed file endpoint
-app.get("/compressed/:filename", async (req, res) => {
+app.delete("/file/:filepath(*)", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
-    const headParams = {
-      Bucket: COMPRESSED_BUCKET,
-      Key: filename
-    };
-    const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
-    const metadata = headResponse.Metadata || {};
-    
-    const getParams = {
-      Bucket: COMPRESSED_BUCKET,
-      Key: filename
-    };
-    const response = await storjClient.send(new GetObjectCommand(getParams));
-    
-    res.setHeader('Content-Type', headResponse.ContentType || getMimeType(filename));
-    res.setHeader('Content-Length', headResponse.ContentLength);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    
-    const stream = response.Body;
-    stream.pipe(res);
-  } catch (error) {
-    console.error("Compressed download error:", error);
-    if (error.name === 'NoSuchKey') {
-      res.status(404).json({ error: "Compressed file not found" });
-    } else {
-      res.status(500).json({ error: "Failed to download compressed file" });
-    }
-  }
-});
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
+    const isFolderDeletion = requestedFilePath.endsWith('/');
 
-// Delete file endpoint
-app.delete("/file/:filename", async (req, res) => {
-  try {
-    const filename = decodeURIComponent(req.params.filename);
-    const deleteParams = {
-      Bucket: BUCKET_NAME,
-      Key: filename
-    };
-    await storjClient.send(new DeleteObjectCommand(deleteParams));
-    res.json({ success: true, message: "File deleted successfully" });
+    if (!requestedFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Not in your vault." });
+    }
+    if (requestedFilePath === userVaultPrefix + '/') {
+      return res.status(403).json({ error: "Cannot delete your root vault folder directly. Please contact support." });
+    }
+
+    if (isFolderDeletion) {
+      const listParams = {
+        Bucket: BUCKET_NAME,
+        Prefix: requestedFilePath
+      };
+
+      const listedObjects = await storjClient.send(new ListObjectsV2Command(listParams));
+
+      if (listedObjects.Contents && listedObjects.Contents.length > 0) {
+        const objectsToDelete = listedObjects.Contents.map(obj => ({ Key: obj.Key }));
+        for (const object of objectsToDelete) {
+          await storjClient.send(new DeleteObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: object.Key
+          }));
+        }
+      }
+      res.json({ success: true, message: `Folder '${basename(requestedFilePath.slice(0, -1))}' and all its contents deleted successfully` });
+    } else {
+      const deleteParams = {
+        Bucket: BUCKET_NAME,
+        Key: requestedFilePath
+      };
+      await storjClient.send(new DeleteObjectCommand(deleteParams));
+      res.json({ success: true, message: `File '${basename(requestedFilePath)}' deleted successfully` });
+    }
   } catch (error) {
     console.error("Delete error:", error);
     if (error.name === 'NoSuchKey') {
-      res.status(404).json({ error: "File not found" });
+      res.status(404).json({ error: "File or folder not found" });
     } else {
-      res.status(500).json({ error: "Failed to delete file" });
+      res.status(500).json({ error: "Failed to delete: " + error.message });
     }
   }
 });
 
-// Compress file endpoint
-app.post("/compress/:filename", async (req, res) => {
+app.put("/file/:filepath(*)/rename", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
+    const userVaultPrefix = req.userVaultPrefix;
+    const oldFilePath = decodeURIComponent(req.params.filepath);
+    const { newName, isFolder } = req.body;
+
+    if (!oldFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Not in your vault." });
+    }
+    if (!newName || typeof newName !== 'string' || newName.trim() === '') {
+      return res.status(400).json({ error: "New name is required" });
+    }
+
+    const trimmedNewName = newName.trim();
+    const currentDir = dirname(oldFilePath);
+
+    let newFilePath;
+
+    if (isFolder) {
+      const oldFolderPath = oldFilePath.endsWith('/') ? oldFilePath : oldFilePath + '/';
+      const newFolderPath = currentDir === userVaultPrefix ? `${userVaultPrefix}/${trimmedNewName}/` : `${currentDir}/${trimmedNewName}/`;
+
+      if (!oldFolderPath.startsWith(userVaultPrefix + '/')) {
+        return res.status(403).json({ error: "Access denied. Folder not in your vault." });
+      }
+
+      const listParams = {
+        Bucket: BUCKET_NAME,
+        Prefix: oldFolderPath
+      };
+      const listedObjects = await storjClient.send(new ListObjectsV2Command(listParams));
+
+      const renamePromises = (listedObjects.Contents || []).map(async (obj) => {
+        const relativePath = obj.Key.substring(oldFolderPath.length);
+        const destinationKey = newFolderPath + relativePath;
+
+        await storjClient.send(new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: destinationKey,
+          CopySource: `${BUCKET_NAME}/${encodeURIComponent(obj.Key)}`,
+          ContentType: obj.ContentType,
+          MetadataDirective: 'COPY',
+          TaggingDirective: 'COPY'
+        }));
+
+        await storjClient.send(new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: obj.Key
+        }));
+      });
+      await Promise.all(renamePromises);
+
+      newFilePath = newFolderPath;
+    } else {
+      const fileExtension = extname(oldFilePath);
+      newFilePath = currentDir === userVaultPrefix ? `${userVaultPrefix}/${trimmedNewName}${fileExtension}` : `${currentDir}/${trimmedNewName}${fileExtension}`;
+
+      await storjClient.send(new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: newFilePath,
+        CopySource: `${BUCKET_NAME}/${encodeURIComponent(oldFilePath)}`,
+        ContentType: getMimeType(newFilePath),
+        MetadataDirective: 'COPY',
+        TaggingDirective: 'COPY'
+      }));
+
+      await storjClient.send(new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: oldFilePath
+      }));
+    }
+
+    res.json({
+      success: true,
+      message: `${isFolder ? 'Folder' : 'File'} renamed successfully`,
+      oldPath: oldFilePath,
+      newPath: newFilePath,
+      newName: trimmedNewName
+    });
+  } catch (error) {
+    console.error("Rename error:", error);
+    if (error.name === 'NoSuchKey') {
+      res.status(404).json({ error: "Item not found" });
+    } else {
+      res.status(500).json({ error: "Failed to rename item: " + error.message });
+    }
+  }
+});
+
+app.post("/compress/:filepath(*)", authenticateToken, async (req, res) => {
+  try {
+    const userVaultPrefix = req.userVaultPrefix;
+    const filepath = decodeURIComponent(req.params.filepath);
     const { percentage = 50, format = "auto" } = req.body;
-    if (!filename || typeof filename !== "string" || filename.includes("..") || filename.includes("/")) {
-      return res.status(400).json({ error: "Invalid filename" });
+
+    if (!filepath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Not in your vault." });
+    }
+    if (filepath.endsWith('/')) {
+        return res.status(400).json({ error: "Folders cannot be compressed." });
     }
     if (percentage < 10 || percentage > 90) {
       return res.status(400).json({ error: "Percentage must be between 10-90" });
     }
+
     const getParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: filepath
     };
     const response = await storjClient.send(new GetObjectCommand(getParams));
     const fileBuffer = await response.Body.transformToByteArray();
-    const isVideo = isVideoFile(filename);
-    const isImage = isImageFile(filename);
+
+    const fileName = basename(filepath);
+    const isVideo = isVideoFile(fileName);
+    const isImage = isImageFile(fileName);
+
     if (!isVideo && !isImage) {
       return res.status(400).json({
         error: "File type not supported for compression",
@@ -430,38 +686,44 @@ app.post("/compress/:filename", async (req, res) => {
         ]
       });
     }
-    const compressedFilename = `compressed_${percentage}pct_${Date.now()}_${filename}`;
+
+    const compressedFileName = `compressed_${percentage}pct_${Date.now()}_${fileName}`;
+    const compressedFilePath = join(dirname(filepath), compressedFileName);
+
     let compressedBuffer;
     if (isImage) {
       compressedBuffer = await compressImage(fileBuffer, percentage, format);
     } else if (isVideo) {
       compressedBuffer = await compressVideo(fileBuffer, percentage, format);
     }
+
     const uploadParams = {
       Bucket: COMPRESSED_BUCKET,
-      Key: compressedFilename,
+      Key: compressedFilePath,
       Body: compressedBuffer,
-      ContentType: getMimeType(compressedFilename),
+      ContentType: getMimeType(compressedFileName),
       Metadata: {
-        originalName: filename,
+        originalPath: filepath,
         compressionPercentage: percentage.toString(),
         compressionFormat: format,
         compressionDate: new Date().toISOString()
       }
     };
     await storjClient.send(new PutObjectCommand(uploadParams));
+
     const originalStat = { size: fileBuffer.length };
     const compressedStat = { size: compressedBuffer.length };
     const compressionRatio = (
       ((originalStat.size - compressedStat.size) / originalStat.size) * 100
     ).toFixed(2);
+
     res.json({
       success: true,
       originalSize: originalStat.size,
       compressedSize: compressedStat.size,
       compressionRatio: `${compressionRatio}%`,
       targetPercentage: `${percentage}%`,
-      downloadUrl: `/compressed/${compressedFilename}`,
+      downloadUrl: `/compressed/${encodeURIComponent(compressedFilePath)}`,
       type: isImage ? "image" : "video",
       format: format,
       canCompress: true,
@@ -473,25 +735,32 @@ app.post("/compress/:filename", async (req, res) => {
   }
 });
 
-// Check if file can be compressed endpoint
-app.get("/can-compress/:filename", async (req, res) => {
+app.get("/can-compress/:filepath(*)", authenticateToken, async (req, res) => {
   try {
-    const filename = decodeURIComponent(req.params.filename);
-    if (!filename || typeof filename !== "string" || filename.includes("..") || filename.includes("/")) {
-      return res.status(400).json({ error: "Invalid filename" });
+    const userVaultPrefix = req.userVaultPrefix;
+    const filepath = decodeURIComponent(req.params.filepath);
+
+    if (!filepath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. Not in your vault." });
     }
+    if (filepath.endsWith('/')) {
+        return res.status(400).json({ error: "Folders cannot be compressed." });
+    }
+
     const headParams = {
       Bucket: BUCKET_NAME,
-      Key: filename
+      Key: filepath
     };
     const headResponse = await storjClient.send(new HeadObjectCommand(headParams));
-    const metadata = headResponse.Metadata || {};
-    const isVideo = isVideoFile(metadata.originalName || filename);
-    const isImage = isImageFile(metadata.originalName || filename);
+    const fileName = basename(filepath);
+    const isVideo = isVideoFile(fileName);
+    const isImage = isImageFile(fileName);
     const canCompress = isVideo || isImage;
+
     res.json({
-      filename: filename,
-      originalName: metadata.originalName || filename,
+      path: filepath,
+      name: fileName,
+      originalName: headResponse.Metadata?.originalName || fileName,
       canCompress: canCompress,
       fileType: isVideo ? "video" : isImage ? "image" : "other",
       size: headResponse.ContentLength,
@@ -510,7 +779,63 @@ app.get("/can-compress/:filename", async (req, res) => {
   }
 });
 
-// Helper function to compress image
+app.post("/folder", authenticateToken, async (req, res) => {
+  try {
+    const userVaultPrefix = req.userVaultPrefix;
+    const { path } = req.body;
+
+    if (!path || typeof path !== "string") {
+      return res.status(400).json({ error: "Invalid folder path" });
+    }
+
+    const normalizedPath = normalizePath(path);
+    const fullFolderPath = `${userVaultPrefix}/${normalizedPath}/`;
+
+    try {
+      await storjClient.send(new HeadObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: fullFolderPath
+      }));
+      return res.status(409).json({ error: "Folder with this name already exists at this path." });
+    } catch (headError) {
+      if (headError.name !== 'NotFound') {
+        throw headError;
+      }
+    }
+
+    const uploadParams = {
+      Bucket: BUCKET_NAME,
+      Key: fullFolderPath,
+      Body: "",
+      ContentType: "application/x-directory",
+      Metadata: {
+        isFolder: "true",
+        createdDate: new Date().toISOString(),
+        vault: userVaultPrefix
+      }
+    };
+
+    await storjClient.send(new PutObjectCommand(uploadParams));
+
+    const folder = {
+      path: fullFolderPath,
+      name: basename(normalizedPath),
+      isFolder: true,
+      created: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      message: "Folder created successfully",
+      folder
+    });
+  } catch (error) {
+    console.error("Create folder error:", error);
+    res.status(500).json({ error: "Failed to create folder: " + error.message });
+  }
+});
+
+
 async function compressImage(buffer, percentage, format = "auto") {
   const quality = Math.max(10, Math.min(100, 100 - percentage + 10));
   let pipeline = sharp(buffer);
@@ -535,22 +860,13 @@ async function compressImage(buffer, percentage, format = "auto") {
   return await pipeline.toBuffer();
 }
 
-// Helper function to compress video (basic implementation)
 async function compressVideo(buffer, percentage, format = "auto") {
-  // This is a basic implementation. For better results, use a proper video processing library.
+  console.warn("Basic video compression: This implementation will likely result in an unplayable video. For proper video compression, integrate with FFmpeg.");
   const targetSize = Math.floor(buffer.length * (1 - percentage / 100));
-  const compressedBuffer = Buffer.alloc(targetSize);
-  let writeIndex = 0;
-  const chunkSize = Math.floor(buffer.length / targetSize);
-  for (let i = 0; i < buffer.length && writeIndex < targetSize; i += chunkSize) {
-    const chunk = buffer.slice(i, Math.min(i + Math.floor(chunkSize * 0.8), buffer.length));
-    chunk.copy(compressedBuffer, writeIndex);
-    writeIndex += chunk.length;
-  }
-  return compressedBuffer.slice(0, writeIndex);
+  const compressedBuffer = buffer.slice(0, Math.max(0, targetSize));
+  return compressedBuffer;
 }
 
-// Helper function to format file size
 function formatFileSize(bytes) {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -559,7 +875,6 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-// Health check
 app.get("/health", async (req, res) => {
   const health = {
     status: "OK",
@@ -569,8 +884,9 @@ app.get("/health", async (req, res) => {
     compressedBucket: COMPRESSED_BUCKET
   };
   try {
-    const listBucketsCommand = new ListBucketsCommand({});
-    await storjClient.send(listBucketsCommand);
+    // Corrected: Use HeadBucketCommand for health check to check bucket existence
+    await storjClient.send(new HeadBucketCommand({ Bucket: BUCKET_NAME }));
+    await storjClient.send(new HeadBucketCommand({ Bucket: COMPRESSED_BUCKET }));
     health.storjConnection = "OK";
   } catch (error) {
     health.status = "ERROR";
@@ -580,19 +896,17 @@ app.get("/health", async (req, res) => {
   res.json(health);
 });
 
-// Error handling middleware
 app.use((error, req, res, next) => {
   console.error("Server error:", error);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// Initialize server
 async function startServer() {
   console.log("🚀 Starting server...");
   const connectionOk = await testConnection();
   if (!connectionOk) {
     console.error("❌ Server cannot start - Storj connection failed");
-    console.error("Please check your credentials and try again");
+    console.error("Please check your credentials and environment variables.");
     process.exit(1);
   }
   app.listen(port, () => {
@@ -600,9 +914,11 @@ async function startServer() {
     console.log(`☁️ Using Storj.io for file storage`);
     console.log(`🪣 Main bucket: ${BUCKET_NAME}`);
     console.log(`🗜️ Compressed files bucket: ${COMPRESSED_BUCKET}`);
+    console.log(`🔑 JWT Secret (make sure this is strong and private): ${JWT_SECRET}`);
+    console.log(`💾 User data stored in: ${USERS_DB_FILE}`);
     console.log(`🔍 Health check: /health`);
-    console.log(`📺 Video streaming: /stream/:filename`);
-    console.log(`📁 File properties: /file/:filename/properties`);
+    console.log(`🚪 Auth Endpoints: /vault/register, /vault/login, /vault/check-auth`);
+    console.log(`🔐 Protected Endpoints: /upload, /list, /f/*, /stream/*, /file/*/properties, /file/*, /compress/*, /can-compress/*, /folder`);
   });
 }
 
