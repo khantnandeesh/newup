@@ -300,7 +300,7 @@ const FileUploader = () => {
       Object.values(activeTimeouts).forEach(clearTimeout);
       uploadCleanupTimeouts.current = {}; // Reset the ref object
     };
-  }, [activeUploads]);
+  }, [activeUploads]); // Dependency: re-run effect whenever activeUploads changes
 
 
   const handleAuth = async (endpoint) => {
@@ -444,8 +444,8 @@ const FileUploader = () => {
                   [fileId]: { ...prev[fileId], progress: 100, status: 'completed', message: 'Upload successful!' }
                 }));
                 addLog(`Upload of ${file.name} completed successfully`);
-                setFetchPath(currentPath); // Only refresh view on successful completion
-                setFetchTrigger(prev => prev + 1);
+                // FIX: Removed setFetchPath(currentPath); only trigger refresh
+                setFetchTrigger(prev => prev + 1); 
               } else {
                 setActiveUploads(prev => ({
                   ...prev,
@@ -600,8 +600,8 @@ const FileUploader = () => {
 
       if (response.ok) {
         addLog(`${itemType.charAt(0).toUpperCase() + itemType.slice(1)} deleted: ${itemName}`);
-        setFetchPath(currentPath);
-        setFetchTrigger(prev => prev + 1);
+        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
         addLog(`Failed to delete ${itemType}: ${errorData.error || 'Unknown error'}`);
@@ -634,8 +634,8 @@ const FileUploader = () => {
         setRenamingItem(null);
         setNewItemName('');
         setShowProperties(false);
-        setFetchPath(currentPath);
-        setFetchTrigger(prev => prev + 1);
+        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
         addLog('Failed to rename item: ' + errorData.error);
@@ -668,8 +668,8 @@ const FileUploader = () => {
       if (response.ok) {
         const result = await response.json();
         addLog(`Folder created: ${result.folder.name}`);
-        setFetchPath(currentPath);
-        setFetchTrigger(prev => prev + 1);
+        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
         addLog('Failed to create folder: ' + (errorData.error || 'Unknown error'));
@@ -750,7 +750,7 @@ const FileUploader = () => {
       return <FileText className="w-full h-full text-red-500" />;
     }
     if (item.isHtml) { // Specific icon for HTML
-      return <FileCode className="w-full h-full text-blue-300" />; // Or a web icon if you have one
+      return <FileCode className="w-full h-full text-blue-300" />; 
     }
     if (item.isDocument) { // General document fallback
         return <FileText className="w-full h-full text-gray-400" />;
@@ -914,8 +914,6 @@ const FileUploader = () => {
 
   // UPDATED FilePreview Component
   const FilePreview = ({ item, x, y, isLoading, content }) => { 
-    // Only show if this item is actively hovered AND it matches the item this preview is for
-    // The outer hoveredItem check in main component handles visibility, but this ensures correct content.
     if (!item) return null; // Ensure item exists
 
     const renderContent = () => {
