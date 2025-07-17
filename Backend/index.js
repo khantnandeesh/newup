@@ -379,7 +379,8 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
         if (headError.name === 'NotFound') {
             return res.status(404).json({ error: "File not found for preview." });
         }
-        throw headError; // Re-throw other errors
+        console.error("Error fetching head object for preview:", headError); // Log unexpected head errors
+        return res.status(500).json({ error: "Failed to get file info for preview: " + headError.message });
     }
 
     const contentType = headResponse.ContentType || getMimeType(fileName);
@@ -387,10 +388,6 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
 
     // Determine preview strategy based on file type
     if (isImageFile(fileName) || isVideoFile(fileName) || fileExtension === 'pdf') {
-      // For images, videos (for thumbnail), and PDFs, directly redirect to the /f endpoint or provide the URL.
-      // The frontend will embed this. We can serve the full file or a smaller version if needed.
-      // For simplicity, let's just tell the frontend to use the existing /f endpoint for these.
-      // If you want smaller image previews, you'd integrate sharp here for images.
       res.json({
         success: true,
         type: 'url',
@@ -399,13 +396,26 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
         message: "URL provided for direct preview embedding."
       });
     } else if (isCodeFile(fileName) || fileExtension === 'txt' || fileExtension === 'json' || fileExtension === 'csv' || fileExtension === 'html') {
-        // For text-based files, fetch a snippet of the content
         const getParams = {
             Bucket: BUCKET_NAME,
             Key: requestedFilePath,
-            Range: `bytes=0-1023` // Fetch first 1KB for snippet
         };
-        const response = await storjClient.send(new GetObjectCommand(getParams));
+
+        // NEW FIX: Only request a range if the file is larger than the desired snippet size
+        // Otherwise, fetch the whole file to avoid InvalidRange errors for small files.
+        const MAX_PREVIEW_BYTES = 1024 * 5; // Fetch up to 5KB for preview snippet
+        if (fileSize > MAX_PREVIEW_BYTES) {
+            getParams.Range = `bytes=0-${MAX_PREVIEW_BYTES - 1}`;
+        }
+        
+        let response;
+        try {
+            response = await storjClient.send(new GetObjectCommand(getParams));
+        } catch (getObjectError) {
+            console.error(`Error getting object for preview snippet for ${requestedFilePath}:`, getObjectError);
+            return res.status(500).json({ error: "Failed to fetch preview snippet: " + getObjectError.message });
+        }
+
         const streamToString = (stream) =>
             new Promise((resolve, reject) => {
                 const chunks = [];
@@ -419,19 +429,20 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
         res.json({
             success: true,
             type: 'text',
-            content: textContent.substring(0, 1000) + (fileSize > 1000 ? '...' : ''), // Max 1000 chars for preview
+            content: textContent.substring(0, MAX_PREVIEW_BYTES) + (fileSize > MAX_PREVIEW_BYTES ? '...' : ''), 
             contentType: contentType
         });
     } else {
-      // For all other unsupported types for direct preview
       res.status(400).json({
         error: "No direct preview available for this file type.",
-        type: 'none'
+        type: 'none',
+        message: "No preview available for this file type." // Added message for frontend
       });
     }
 
   } catch (error) {
-    console.error("Preview endpoint error:", error);
+    // Generic catch-all for any other errors in this endpoint
+    console.error("Preview endpoint general error:", error);
     res.status(500).json({ error: "Failed to generate preview: " + error.message });
   }
 });
