@@ -76,7 +76,7 @@ const FileUploader = () => {
 
   const overallProgress = isAnyUploading
     ? (uploadingFiles.reduce((sum, upload) => sum + upload.progress, 0) / uploadingFiles.length)
-    : 0; // This will now correctly show 0% if only file_sent remain
+    : 0; 
   
   const overallSpeed = isAnyUploading
     ? uploadingFiles.reduce((sum, upload) => sum + upload.speed, 0)
@@ -92,7 +92,7 @@ const FileUploader = () => {
 
   // --- Constant Data / Helper Functions (can be defined here or outside component) ---
   const videoFormats = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.3gp'];
-  const imageFormats = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
+  const imageFormats = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.bmp', '.tiff']; // Added bmp, tiff
   const documentFormats = ['.pdf', '.doc', '.docx', '.txt', '.xlsx', '.xls', '.ppt', '.pptx'];
   const audioFormats = ['.mp3', '.wav', '.aac', '.flac'];
   const codeFormats = ['.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.html', '.css', '.json', '.xml'];
@@ -116,12 +116,12 @@ const FileUploader = () => {
     setLog((l) => [...l, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
 
-  let formatSpeed = (bytesPerSecond) => {
+  const formatSpeed = (bytesPerSecond) => {
     if (bytesPerSecond >= 1024 * 1024) { return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`; }
     else if (bytesPerSecond >= 1024) { return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`; }
     else { return `${bytesPerSecond.toFixed(0)} B/s`; }
   };
-  let formatFileSize = (bytes) => {
+  const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024; const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -213,7 +213,7 @@ const FileUploader = () => {
       setItems([]);
       addLog('Failed to fetch items: ' + e.message);
     }
-  }, [getAuthHeaders]);
+  }, [getAuthHeaders, isVideoFile, isImageFile, isDocumentFile, isAudioFile, isCodeFile, isArchiveFile, isSpreadsheetFile, isPdfFile, isHtmlFile]);
 
 
   const setAuthenticatedSession = useCallback((authenticated, token = null) => {
@@ -300,7 +300,7 @@ const FileUploader = () => {
       Object.values(activeTimeouts).forEach(clearTimeout);
       uploadCleanupTimeouts.current = {}; // Reset the ref object
     };
-  }, [activeUploads]); // Dependency: re-run effect whenever activeUploads changes
+  }, [activeUploads]);
 
 
   const handleAuth = async (endpoint) => {
@@ -361,7 +361,7 @@ const FileUploader = () => {
 
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
-    if (isAnyUploading) { // This check now uses the refined 'isAnyUploading'
+    if (isAnyUploading) { 
       addLog("Uploads already in progress. Please wait or clear.");
       return;
     }
@@ -372,7 +372,7 @@ const FileUploader = () => {
   };
 
   const handleFileSelect = (e) => {
-    if (isAnyUploading) { // This check now uses the refined 'isAnyUploading'
+    if (isAnyUploading) { 
       addLog("Uploads already in progress. Please wait or clear.");
       return;
     }
@@ -503,7 +503,7 @@ const FileUploader = () => {
   const viewItemProperties = async (item) => {
     try {
       if (item.isFolder) {
-        setSelectedItem({
+        setSelectedItem({ 
           name: item.name,
           path: item.path,
           isFolder: true,
@@ -746,25 +746,17 @@ const FileUploader = () => {
     if (item.isArchive) {
         return <FileArchive className="w-full h-full text-orange-400" />;
     }
-    if (item.isDocument) { // This now covers general documents, PDFs and HTML will have specific icons below
-        const ext = getFileExtension(item.name);
-        if (ext === 'pdf') {
-            return <FileText className="w-full h-full text-red-500" />;
-        }
-        return <FileText className="w-full h-full text-gray-400" />;
-    }
     if (item.isPdf) { // Specific icon for PDF
       return <FileText className="w-full h-full text-red-500" />;
     }
     if (item.isHtml) { // Specific icon for HTML
       return <FileCode className="w-full h-full text-blue-300" />; // Or a web icon if you have one
     }
+    if (item.isDocument) { // General document fallback
+        return <FileText className="w-full h-full text-gray-400" />;
+    }
     return <FileText className="w-full h-full text-gray-400" />;
   };
-
-    // Corrected duplication of formatSpeed and formatFileSize
-    // let formatSpeed = (bytesPerSecond) => { ... }; (already defined above)
-    // let formatFileSize = (bytes) => { ... }; (already defined above)
 
   const filteredItems = items.filter(item => {
     const nameToSearch = item.name || item.originalName || '';
@@ -779,7 +771,9 @@ const FileUploader = () => {
       (filterType === 'audio' && item.isAudio) ||
       (filterType === 'code' && item.isCode) ||
       (filterType === 'archive' && item.isArchive) ||
-      (filterType === 'spreadsheet' && item.isSpreadsheet);
+      (filterType === 'spreadsheet' && item.isSpreadsheet) ||
+      (filterType === 'pdf' && item.isPdf) || // Added PDF to filter
+      (filterType === 'html' && item.isHtml); // Added HTML to filter
 
     return matchesSearch && matchesFilter;
   });
@@ -815,95 +809,94 @@ const FileUploader = () => {
     };
   }, [contextMenu.visible, handleClickOutsideContextMenu]);
 
-const handleMouseEnterItem = (e, item) => {
-  // Clear any existing timeout and abort any ongoing fetch
-  clearTimeout(previewTimeoutRef.current);
-  if (currentPreviewAbortController.current) {
-    currentPreviewAbortController.current.abort();
-  }
-  setPreviewContent(null); // Clear previous preview content
-  setPreviewLoading(false); // Reset loading state
 
-  // Only show preview for files, not folders
-  if (item.isFolder) {
-    setHoveredItem(null); // Ensure no preview for folders
-    return;
-  }
+  // UPDATED handleMouseEnterItem to fetch preview content
+  const handleMouseEnterItem = (e, item) => {
+    // Clear any existing timeout and abort any ongoing fetch
+    clearTimeout(previewTimeoutRef.current);
+    if (currentPreviewAbortController.current) {
+      currentPreviewAbortController.current.abort();
+      currentPreviewAbortController.current = null; // Clear controller reference
+    }
+    setPreviewContent(null); // Clear previous preview content
+    setPreviewLoading(false); // Reset loading state
 
-  // Store a reference to the target element
-  const targetElement = e.currentTarget; 
-
-  previewTimeoutRef.current = setTimeout(async () => {
-    // IMPORTANT: Check if the target element still exists in the DOM
-    if (!targetElement || !document.body.contains(targetElement)) {
-      console.log("Hover target element no longer in DOM, aborting preview.");
-      setHoveredItem(null);
-      setPreviewContent(null);
-      setPreviewLoading(false);
+    // Only show preview for files, not folders
+    if (item.isFolder) {
+      setHoveredItem(null); // Ensure no preview for folders
       return;
     }
 
-    const rect = targetElement.getBoundingClientRect(); // Use targetElement here
-    const viewportWidth = window.innerWidth;
-    const previewWidth = 300; // Increased preview width for text/PDF
-    const previewHeight = 250; // Increased preview height for text/PDF
+    // Ensure we don't fetch if it's already the hovered item and content is loaded
+    if (hoveredItem && hoveredItem.path === item.path && previewContent && !previewLoading) {
+      return; // Already showing preview for this item, no need to re-fetch
+    }
 
-    let xPos = rect.right + 10;
-    let yPos = rect.top;
+    // Store a reference to the target element
+    const targetElement = e.currentTarget; 
 
-    if (xPos + previewWidth > viewportWidth - 20) {
-      xPos = rect.left - previewWidth - 10;
-      if (xPos < 20) {
-        xPos = rect.left;
-        yPos = rect.bottom + 10;
+    previewTimeoutRef.current = setTimeout(async () => {
+      // IMPORTANT: Check if the target element still exists in the DOM
+      if (!targetElement || !document.body.contains(targetElement)) {
+        console.log("Hover target element no longer in DOM, aborting preview.");
+        setHoveredItem(null);
+        setPreviewContent(null);
+        setPreviewLoading(false);
+        return;
       }
-    }
-    if (yPos + previewHeight > window.innerHeight - 20) {
-      yPos = window.innerHeight - (previewHeight + 20);
-      if (yPos < 0) yPos = 20;
-    }
 
-    setPreviewCoords({ x: xPos, y: yPos });
-    setHoveredItem(item);
-    setPreviewLoading(true);
+      const rect = targetElement.getBoundingClientRect(); // Use targetElement here
+      const viewportWidth = window.innerWidth;
+      const previewWidth = 300; // Increased preview width for text/PDF
+      const previewHeight = 250; // Increased preview height for text/PDF
 
-    // Fetch preview content based on file type
-    try {
-      const controller = new AbortController();
-      currentPreviewAbortController.current = controller; // Store controller to abort later
-      const signal = controller.signal;
+      let xPos = rect.right + 10;
+      let yPos = rect.top;
 
-      if (item.isImage) {
-        setPreviewContent({ type: 'image', url: item.downloadUrl });
-        setPreviewLoading(false);
-      } else if (item.isVideo) {
-        setPreviewContent({ type: 'video', url: item.streamUrl });
-        setPreviewLoading(false);
-      } else if (item.isPdf || item.isHtml) {
-        setPreviewContent({ type: item.isPdf ? 'pdf' : 'html', url: item.downloadUrl });
-        setPreviewLoading(false);
-      } else if (item.isCode || item.isDocument || item.isSpreadsheet || item.isAudio) {
+      if (xPos + previewWidth > viewportWidth - 20) {
+        xPos = rect.left - previewWidth - 10;
+        if (xPos < 20) {
+          xPos = rect.left;
+          yPos = rect.bottom + 10;
+        }
+      }
+      if (yPos + previewHeight > window.innerHeight - 20) {
+        yPos = window.innerHeight - (previewHeight + 20);
+        if (yPos < 0) yPos = 20;
+      }
+
+      setPreviewCoords({ x: xPos, y: yPos });
+      setHoveredItem(item); // Set hovered item to trigger FilePreview render
+      setPreviewLoading(true); // Indicate loading state for the preview pop-up
+
+      // Fetch preview content from the new backend endpoint
+      try {
+        const controller = new AbortController();
+        currentPreviewAbortController.current = controller; // Store controller to abort later
+        const signal = controller.signal;
+
         const headers = getAuthHeaders();
-        const response = await fetch(item.downloadUrl, { headers, signal });
-        if (!response.ok) throw new Error('Failed to fetch preview');
-        const textContent = await response.text();
-        setPreviewContent({ type: 'text', content: textContent.substring(0, 500) + (textContent.length > 500 ? '...' : '') });
-        setPreviewLoading(false);
-      } else {
-        setPreviewContent({ type: 'none' });
-        setPreviewLoading(false);
+        const response = await fetch(`${BACKEND_URL}/preview/${encodeURIComponent(item.path)}`, { headers, signal });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to fetch preview data from backend.');
+        }
+
+        setPreviewContent(data); // Set the received preview data
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log(`Preview fetch for ${item.name} aborted.`);
+        } else {
+          console.error('Failed to load preview:', error);
+          setPreviewContent({ type: 'error', message: 'Failed to load preview: ' + error.message });
+        }
+      } finally {
+        setPreviewLoading(false); // Always stop loading, even on error
+        currentPreviewAbortController.current = null; // Clear controller after fetch
       }
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        addLog(`Preview fetch for ${item.name} aborted.`);
-      } else {
-        console.error('Failed to load preview:', error);
-        setPreviewContent({ type: 'error', message: 'Failed to load preview.' });
-      }
-      setPreviewLoading(false);
-    }
-  }, 500);
-};
+    }, 500); // 500ms delay before attempting to fetch
+  };
 
 
   // UPDATED handleMouseLeaveItem to clear preview content immediately
@@ -913,15 +906,17 @@ const handleMouseEnterItem = (e, item) => {
       currentPreviewAbortController.current.abort(); // Abort any ongoing fetch
       currentPreviewAbortController.current = null;
     }
-    setHoveredItem(null);
+    setHoveredItem(null); // This will hide the FilePreview component
     setPreviewContent(null); // Clear content immediately
     setPreviewLoading(false); // Reset loading state
   };
 
 
   // UPDATED FilePreview Component
-  const FilePreview = ({ item, x, y, isLoading, content, fileType }) => {
-    if (!item || !hoveredItem || hoveredItem.path !== item.path) return null; // Only show if this item is actively hovered
+  const FilePreview = ({ item, x, y, isLoading, content }) => { 
+    // Only show if this item is actively hovered AND it matches the item this preview is for
+    // The outer hoveredItem check in main component handles visibility, but this ensures correct content.
+    if (!item) return null; // Ensure item exists
 
     const renderContent = () => {
       if (isLoading) {
@@ -932,58 +927,66 @@ const handleMouseEnterItem = (e, item) => {
         );
       }
 
-      if (content && content.type === 'image') {
+      if (!content || content.type === 'error' || content.type === 'none') {
         return (
-          <img
-            src={content.url}
-            alt={item.name}
-            className="w-full h-full object-contain"
-            onError={(e) => { e.target.onerror = null; e.target.src = '/image-placeholder.png'; }}
-          />
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center text-sm p-2">
+            {content && content.type === 'error' ? (
+              <AlertCircle className="w-6 h-6 mb-2 text-red-400" />
+            ) : (
+              <Info className="w-6 h-6 mb-2" />
+            )}
+            <p>{content ? content.message || 'No preview available.' : 'No preview available.'}</p>
+          </div>
         );
-      } else if (content && content.type === 'video') {
+      }
+
+      if (content.type === 'url') { // For images, videos, PDFs from backend /preview endpoint
+          if (item.isImage) {
+              return (
+                  <img
+                      src={content.url}
+                      alt={item.name}
+                      className="w-full h-full object-contain"
+                      onError={(e) => { e.target.onerror = null; e.target.src = '/image-placeholder.png'; }}
+                  />
+              );
+          } else if (item.isVideo) {
+              return (
+                  <>
+                      {/* You might want a video player here, or a static thumbnail */}
+                      <img
+                          src={'/video-placeholder.png'} // Use a generic video placeholder for hover
+                          alt={item.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.target.onerror = null; e.target.src = '/video-placeholder.png'; }}
+                      />
+                      <Play className="absolute w-10 h-10 text-white/80" />
+                  </>
+              );
+          } else if (item.isPdf || item.isHtml) { // PDF and HTML will use iframe with the provided URL
+              return (
+                  <iframe
+                      src={content.url}
+                      title={`${item.name} preview`}
+                      className="w-full h-full border-0"
+                      // Crucial for security and to potentially allow embedding from a different origin if backend sets appropriate headers
+                      // sandbox="allow-scripts allow-same-origin allow-popups" // Add allow-popups if needed for PDF viewers
+                      sandbox="allow-scripts allow-same-origin" // Good default for simple embedding
+                  />
+              );
+          }
+      } else if (content.type === 'text') {
         return (
-          <>
-            <img
-              src={'/video-thumbnail-placeholder.png'} // You'd ideally generate real thumbnails on backend
-              alt={item.name}
-              className="w-full h-full object-cover"
-              onError={(e) => { e.target.onerror = null; e.target.src = '/video-placeholder.png'; }}
-            />
-            <Play className="absolute w-10 h-10 text-white/80" />
-          </>
-        );
-      } else if (content && (content.type === 'pdf' || content.type === 'html')) {
-        // Embed PDF or HTML directly. This is highly dependent on server's X-Frame-Options and browser support.
-        // For local testing or specific server configs, it might work.
-        return (
-          <iframe
-            src={content.url}
-            title={`${item.name} preview`}
-            className="w-full h-full border-0"
-            sandbox="allow-scripts allow-same-origin" // Add sandbox for security, adjust as needed
-            onLoad={() => console.log('Iframe loaded')}
-            onError={() => console.error('Iframe error')}
-          />
-        );
-      } else if (content && content.type === 'text') {
-        return (
-          <pre className="w-full h-full text-xs text-gray-100 overflow-hidden whitespace-pre-wrap break-all px-2 py-1">
+          <pre className="w-full h-full text-xs text-gray-100 overflow-auto whitespace-pre-wrap break-all px-2 py-1">
             {content.content}
           </pre>
         );
-      } else if (content && content.type === 'error') {
-        return (
-          <div className="flex flex-col items-center justify-center h-full text-red-400 text-center text-sm p-2">
-            <AlertCircle className="w-6 h-6 mb-2" />
-            <p>{content.message}</p>
-          </div>
-        );
       } else {
+        // Fallback for any unexpected content type from backend
         return (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center text-sm p-2">
             <Info className="w-6 h-6 mb-2" />
-            <p>No preview available for this file type.</p>
+            <p>Unknown preview type.</p>
           </div>
         );
       }
@@ -992,9 +995,9 @@ const handleMouseEnterItem = (e, item) => {
     return (
       <div
         className="fixed z-50 bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-2 animate-fadeIn"
-        style={{ left: x, top: y, width: '300px', height: '250px' }} // Increased size
+        style={{ left: x, top: y, width: '300px', height: '250px' }} 
       >
-        <div className="w-full h-[calc(100%-20px)] flex items-center justify-center overflow-hidden rounded-md relative mb-1">
+        <div className="w-full h-[calc(100%-30px)] flex items-center justify-center overflow-hidden rounded-md relative mb-1">
           {renderContent()}
         </div>
         <div className="text-white text-xs px-1.5 py-0.5 rounded-sm truncate w-full text-center">
@@ -1256,6 +1259,8 @@ const handleMouseEnterItem = (e, item) => {
                 <option value="code">Code</option>
                 <option value="archive">Archives</option>
                 <option value="spreadsheet">Spreadsheets</option>
+                <option value="pdf">PDFs</option> {/* Added filter option */}
+                <option value="html">HTML</option> {/* Added filter option */}
               </select>
               {/* View Toggle */}
               <div className="flex items-center bg-gray-800 rounded-lg p-0.5">
@@ -1278,22 +1283,16 @@ const handleMouseEnterItem = (e, item) => {
           </div>
 
           {/* Upload Progress/Status for Multiple Files */}
-          {/* Now, the entire progress box only shows if any file is still being processed or pending (not completed/failed/aborted) */}
           {!areAllUploadsFinished && totalUploadsStarted > 0 && (
             <div className="bg-blue-900 border border-blue-700 rounded-xl p-4 flex flex-col space-y-3 shadow-lg animate-fadeIn">
               <div className="flex items-center space-x-4">
-                {/* This loader now only shows if files are actively uploading (transferring bytes) */}
                 {isAnyUploading ? (
                   <Loader2 className="w-6 h-6 text-blue-400 animate-spin flex-shrink-0" />
                 ) : (
-                  // If no files are actively uploading, but still being processed (file_sent), show a different icon or nothing
-                  // For now, if all are 'file_sent', it will show CheckCircle.
-                  // If you want a different indicator for 'file_sent' at the top, you'd add more logic here.
                   <CheckCircle className="w-6 h-6 text-emerald-400 flex-shrink-0" />
                 )}
                 <div className="flex-1">
                   <p className="text-sm font-medium text-blue-200">
-                    {/* The count will still be based on all uploads, but the percentage and speed only on actively uploading ones */}
                     {completedUploadsCount}/{totalUploadsStarted} files uploaded ({Math.round(overallProgress)}% Complete)
                   </p>
                   <div className="w-full bg-blue-700 rounded-full h-2 mt-1">
@@ -1305,12 +1304,11 @@ const handleMouseEnterItem = (e, item) => {
                   {isAnyUploading && overallSpeed > 0 && (
                     <p className="text-xs text-blue-300 mt-1">Overall Speed: {formatSpeed(overallSpeed)}</p>
                   )}
-                  {!isAnyUploading && isAnyFileBeingProcessed && ( // New condition for server processing message
+                  {!isAnyUploading && isAnyFileBeingProcessed && ( 
                     <p className="text-xs text-blue-300 mt-1">Server processing remaining files...</p>
                   )}
                 </div>
               </div>
-              {/* Individual file progress list - keep the spinner for 'file_sent' status here */}
               <div className="space-y-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
                 {Object.values(activeUploads).map(upload => (
                   <div key={upload.name} className="flex items-center text-xs text-blue-200">
@@ -1322,7 +1320,6 @@ const handleMouseEnterItem = (e, item) => {
                     {upload.status === 'aborted' && <X className="w-4 h-4 text-gray-400 ml-1" title={upload.message} />}
                     {upload.status === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-400 ml-1" />}
                     {upload.status === 'uploading' && <span className="ml-1 text-gray-400">{formatSpeed(upload.speed)}</span>}
-                    {/* Keep the spinning loader for file_sent on individual files */}
                     {upload.status === 'file_sent' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-1" title={upload.message} />}
                   </div>
                 ))}
@@ -1349,11 +1346,7 @@ const handleMouseEnterItem = (e, item) => {
             </div>
           )}
 
-          {/* This 'link' success message might now be redundant or less important with the new 'areAllUploadsFinished' summary.
-              Consider removing it or adjusting its condition if it creates double messages.
-              For now, keeping it but note the potential overlap with the overall summary.
-          */}
-          {link && !totalUploadsStarted && (
+          {link && !totalUploadsStarted && ( 
             <div className="bg-emerald-900 border border-emerald-700 rounded-xl p-4 animate-fadeIn shadow-lg">
               <div className="flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
@@ -1799,7 +1792,7 @@ const handleMouseEnterItem = (e, item) => {
           x={previewCoords.x}
           y={previewCoords.y}
           isLoading={previewLoading}
-          content={previewContent}
+          content={previewContent} 
         />
       )}
 
