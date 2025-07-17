@@ -456,7 +456,6 @@ const FileUploader = () => {
     }, [contextMenu.visible, handleClickOutsideContextMenu]);
 
     const handleMouseEnterItem = (e, item) => {
-        // If a preview for the same item is already visible or loading, do nothing.
         if (hoveredItem?.path === item.path || activePreviewRequest.current === item.path) {
             return;
         }
@@ -469,13 +468,13 @@ const FileUploader = () => {
             if (!document.body.contains(targetElement)) return;
             const rect = targetElement.getBoundingClientRect();
             setPreviewCoords({ x: rect.right + 10, y: rect.top });
-            setHoveredItem(item); // This will trigger the FilePreview component to render and fetch
+            setHoveredItem(item);
         }, 500);
     };
 
     const handleMouseLeaveItem = () => {
         clearTimeout(previewTimeoutRef.current);
-        setHoveredItem(null); // This will unmount the FilePreview component
+        setHoveredItem(null);
     };
 
     const toggleNewMenu = useCallback(() => setShowNewMenu(prev => !prev), []);
@@ -722,6 +721,16 @@ const FileUploader = () => {
             if (!previewData || previewData.type === 'error' || previewData.type === 'none') return <div className="text-center text-gray-500"><Info className="w-6 h-6 mx-auto mb-2" /><p className="text-sm">{previewData?.message || 'No preview'}</p></div>;
             if (previewData.type === 'url' && objectUrl) {
                 if (isImageFile(item.name)) return <img src={objectUrl} alt={item.name} className="w-full h-full object-contain" />;
+                if (isVideoFile(item.name)) {
+                    return (
+                        <div className="w-full h-full flex items-center justify-center bg-black">
+                            <video src={objectUrl} className="w-full h-full object-contain" muted playsInline />
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                                <Play className="w-12 h-12 text-white/70" />
+                            </div>
+                        </div>
+                    );
+                }
                 if (isPdfFile(item.name) || isHtmlFile(item.name)) return <iframe src={objectUrl} title={`${item.name} preview`} className="w-full h-full border-0 bg-white" sandbox="allow-scripts allow-same-origin" />;
             }
             if (previewData.type === 'text') return <pre className="w-full h-full text-xs text-gray-300 overflow-auto p-2 whitespace-pre-wrap break-all">{previewData.content}</pre>;
