@@ -47,13 +47,11 @@ const FileUploader = () => {
     const [breadcrumbs, setBreadcrumbs] = useState([{ name: 'My Drive', path: '' }]);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, item: null });
 
+    // Preview-related state
     const [hoveredItem, setHoveredItem] = useState(null);
     const [previewCoords, setPreviewCoords] = useState({ x: 0, y: 0 });
     const previewTimeoutRef = useRef(null);
-
-    const [previewContent, setPreviewContent] = useState(null);
-    const [previewLoading, setPreviewLoading] = useState(false);
-    const currentPreviewAbortController = useRef(null);
+    const activePreviewRequest = useRef(null); // To track the item path being fetched
 
     const [fetchTrigger, setFetchTrigger] = useState(0);
     const [fetchPath, setFetchPath] = useState('');
@@ -68,7 +66,6 @@ const FileUploader = () => {
     // --- DERIVED STATE ---
     const uploadingFiles = Object.values(activeUploads).filter(u => u.status === 'uploading');
     const isAnyUploading = uploadingFiles.length > 0;
-    const isAnyFileBeingProcessed = Object.values(activeUploads).some(u => u.status === 'uploading' || u.status === 'file_sent');
 
     const overallProgress = isAnyUploading
         ? (uploadingFiles.reduce((sum, upload) => sum + upload.progress, 0) / uploadingFiles.length)
@@ -96,7 +93,7 @@ const FileUploader = () => {
     const pdfFormats = ['.pdf'];
     const htmlFormats = ['.html', '.htm'];
 
-    const getFileExtension = (filename) => filename.toLowerCase().split('.').pop();
+    const getFileExtension = (filename) => filename ? filename.toLowerCase().split('.').pop() : '';
     const isVideoFile = (filename) => videoFormats.includes('.' + getFileExtension(filename));
     const isImageFile = (filename) => imageFormats.includes('.' + getFileExtension(filename));
     const isDocumentFile = (filename) => documentFormats.includes('.' + getFileExtension(filename));
@@ -117,7 +114,7 @@ const FileUploader = () => {
         else { return `${bytesPerSecond.toFixed(0)} B/s`; }
     };
     const formatFileSize = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
+        if (!bytes || bytes === 0) return '0 Bytes';
         const k = 1024; const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
@@ -131,15 +128,10 @@ const FileUploader = () => {
 
     const performFetchItems = useCallback(async (path) => {
         const headers = getAuthHeaders();
-        if (Object.keys(headers).length === 0) {
-            return;
-        }
+        if (Object.keys(headers).length === 0) return;
 
         try {
-            addLog(`Fetching items for path: ${path || 'root'}`);
-            const res = await fetch(`${BACKEND_URL}/list?prefix=${encodeURIComponent(path)}`, {
-                headers: headers,
-            });
+            const res = await fetch(`${BACKEND_URL}/list?prefix=${encodeURIComponent(path)}`, { headers });
             const data = await res.json();
 
             if (!res.ok) {
@@ -147,7 +139,6 @@ const FileUploader = () => {
                     Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
                     setIsAuthenticated(false);
                     setAuthError('Session expired or unauthorized. Please log in again.');
-                    addLog('Session expired or unauthorized. Forcing re-login.');
                     return;
                 }
                 throw new Error(data.error || `Server error: ${res.status}`);
@@ -156,77 +147,41 @@ const FileUploader = () => {
             if (data && Array.isArray(data.items)) {
                 const formattedItems = data.items.map(item => {
                     const displayName = item.name || (item.path ? item.path.split('/').filter(Boolean).pop() : 'Unknown');
-                    const isFile = !item.isFolder;
-
-                    return {
-                        ...item,
-                        name: displayName,
-                        originalName: item.originalName || displayName,
-                        isVideo: isFile ? isVideoFile(displayName) : false,
-                        isImage: isFile ? isImageFile(displayName) : false,
-                        isDocument: isFile ? isDocumentFile(displayName) : false,
-                        isAudio: isFile ? isAudioFile(displayName) : false,
-                        isCode: isFile ? isCodeFile(displayName) : false,
-                        isArchive: isFile ? isArchiveFile(displayName) : false,
-                        isSpreadsheet: isFile ? isSpreadsheetFile(displayName) : false,
-                        isPdf: isFile ? isPdfFile(displayName) : false,
-                        isHtml: isFile ? isHtmlFile(displayName) : false,
-                        downloadUrl: isFile ? `${BACKEND_URL}/f/${encodeURIComponent(item.path)}` : null,
-                        streamUrl: isFile && isVideoFile(displayName) ? `${BACKEND_URL}/stream/${encodeURIComponent(item.path)}` : null
-                    };
+                    return { ...item, name: displayName };
                 });
-
                 const sortedItems = formattedItems.sort((a, b) => {
                     if (a.isFolder && !b.isFolder) return -1;
                     if (!a.isFolder && b.isFolder) return 1;
                     return a.name.localeCompare(b.name);
                 });
-
                 setItems(sortedItems);
                 setCurrentPath(data.currentPath || '');
                 setParentPath(data.parentPath);
-
                 const newBreadcrumbs = [{ name: 'My Drive', path: '' }];
                 if (data.currentPath) {
                     const parts = data.currentPath.split('/').filter(Boolean);
                     parts.forEach((part, index) => {
-                        const pathSegment = parts.slice(0, index + 1).join('/');
-                        newBreadcrumbs.push({ name: part, path: pathSegment });
+                        newBreadcrumbs.push({ name: part, path: parts.slice(0, index + 1).join('/') });
                     });
                 }
                 setBreadcrumbs(newBreadcrumbs);
-            } else {
-                console.warn('Invalid response format:', data);
-                setItems([]);
-                setCurrentPath('');
-                setParentPath(null);
-                setBreadcrumbs([{ name: 'My Drive', path: '' }]);
             }
         } catch (e) {
             console.error('Failed to fetch items:', e);
-            setItems([]);
             addLog('Failed to fetch items: ' + e.message);
         }
     }, [getAuthHeaders]);
 
-
     const setAuthenticatedSession = useCallback((authenticated, token = null) => {
         setIsAuthenticated(authenticated);
+        if (authenticated && token) {
+            Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
+        } else if (!authenticated) {
+            Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
+        }
         if (authenticated) {
-            if (token) {
-                Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
-            }
-            addLog('Authentication successful.');
             setFetchTrigger(prev => prev + 1);
             setFetchPath('');
-        } else {
-            Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
-            setItems([]);
-            setLog([]);
-            setCurrentPath('');
-            setParentPath(null);
-            setBreadcrumbs([{ name: 'My Drive', path: '' }]);
-            addLog('Authentication cleared.');
         }
     }, []);
 
@@ -235,18 +190,10 @@ const FileUploader = () => {
         const token = Cookies.get(VAULT_TOKEN_COOKIE_NAME);
         if (token) {
             try {
-                const response = await fetch(`${BACKEND_URL}/vault/check-auth`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                });
-                if (response.ok) {
-                    setAuthenticatedSession(true);
-                } else {
-                    setAuthenticatedSession(false);
-                    addLog('Authentication cookie invalid or expired. Please log in.');
-                }
+                const response = await fetch(`${BACKEND_URL}/vault/check-auth`, { headers: { 'Authorization': `Bearer ${token}` } });
+                setAuthenticatedSession(response.ok);
             } catch (err) {
                 setAuthenticatedSession(false);
-                addLog('Failed to verify authentication token: ' + err.message);
             }
         } else {
             setAuthenticatedSession(false);
@@ -254,9 +201,7 @@ const FileUploader = () => {
         setAuthLoading(false);
     }, [setAuthenticatedSession]);
 
-    useEffect(() => {
-        checkAuthStatus();
-    }, [checkAuthStatus]);
+    useEffect(() => { checkAuthStatus(); }, [checkAuthStatus]);
 
     useEffect(() => {
         if (isAuthenticated && !authLoading) {
@@ -266,32 +211,21 @@ const FileUploader = () => {
 
     useEffect(() => {
         const activeTimeouts = uploadCleanupTimeouts.current;
-
         Object.keys(activeUploads).forEach(fileId => {
             const upload = activeUploads[fileId];
-            if ((upload.status === 'completed' || upload.status === 'failed' || upload.status === 'aborted') && !activeTimeouts[fileId]) {
+            const isFinished = ['completed', 'failed', 'aborted'].includes(upload.status);
+            if (isFinished && !activeTimeouts[fileId]) {
                 activeTimeouts[fileId] = setTimeout(() => {
-                    setActiveUploads(prev => {
-                        const newState = { ...prev };
-                        delete newState[fileId];
-                        return newState;
-                    });
+                    setActiveUploads(prev => { const newState = { ...prev }; delete newState[fileId]; return newState; });
                     delete activeTimeouts[fileId];
                 }, 5000);
-            } else if (['pending', 'uploading', 'file_sent'].includes(upload.status)) {
-                if (activeTimeouts[fileId]) {
-                    clearTimeout(activeTimeouts[fileId]);
-                    delete activeTimeouts[fileId];
-                }
+            } else if (!isFinished && activeTimeouts[fileId]) {
+                clearTimeout(activeTimeouts[fileId]);
+                delete activeTimeouts[fileId];
             }
         });
-
-        return () => {
-            Object.values(activeTimeouts).forEach(clearTimeout);
-            uploadCleanupTimeouts.current = {};
-        };
+        return () => Object.values(activeTimeouts).forEach(clearTimeout);
     }, [activeUploads]);
-
 
     const handleAuth = async (endpoint) => {
         setAuthError('');
@@ -302,308 +236,201 @@ const FileUploader = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ vaultNumber: vaultNumberInput, passcode: passcodeInput }),
             });
-
             const data = await response.json();
             if (response.ok) {
                 setAuthenticatedSession(true, data.token);
-                addLog(`Successfully ${endpoint === 'register' ? 'registered' : 'logged in'} to vault: ${vaultNumberInput}`);
             } else {
                 setAuthError(data.error || 'Authentication failed.');
-                addLog(`Authentication failed: ${data.error || 'Unknown error'}`);
                 setAuthenticatedSession(false);
             }
         } catch (err) {
             setAuthError('Network error or server unreachable.');
-            addLog('Authentication network error: ' + err.message);
             setAuthenticatedSession(false);
-        } finally {
-            setAuthLoading(false);
         }
+        setAuthLoading(false);
     };
 
     const handleLogout = () => {
         setAuthenticatedSession(false);
         setVaultNumberInput('');
         setPasscodeInput('');
-        addLog('Logged out successfully.');
     };
 
     const navigateToFolder = (path) => {
-        if (path === 'Trash' || path === 'Recent' || path === 'Starred') {
+        if (['Trash', 'Recent', 'Starred'].includes(path)) {
             addLog(`Navigation to system folder "${path}" is not yet implemented.`);
-            // In a real app, you would handle this differently, maybe fetching from a different endpoint.
-            // For now, we just clear the view or show a message.
             setItems([]);
             setCurrentPath(path);
             setBreadcrumbs([{ name: 'My Drive', path: '' }, { name: path, path: path }]);
             return;
         }
         setSearchTerm('');
-        setFilterType('all');
         setFetchPath(path);
-        setFetchTrigger(prev => prev + 1);
     };
 
     const handleDragEnter = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); };
     const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); };
     const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
-
     const handleDrop = (e) => {
         e.preventDefault(); e.stopPropagation(); setDragActive(false);
         const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) {
-            files.forEach(file => upload(file));
-        }
+        if (files.length > 0) files.forEach(upload);
     };
-
     const handleFileSelect = (e) => {
         const files = Array.from(e.target.files);
-        if (files.length > 0) {
-            files.forEach(file => upload(file));
-        }
+        if (files.length > 0) files.forEach(upload);
         e.target.value = '';
     };
 
-
-    const upload = async (file) => {
+    const upload = useCallback((file) => {
         const fileId = `${file.name}-${Date.now()}`;
-        setActiveUploads(prev => ({
-            ...prev,
-            [fileId]: { name: file.name, progress: 0, speed: 0, status: 'pending', message: 'Waiting...' }
-        }));
+        setActiveUploads(prev => ({ ...prev, [fileId]: { name: file.name, progress: 0, speed: 0, status: 'pending' } }));
+        const formData = new FormData();
+        formData.append('file', file);
+        if (currentPath) formData.append('folderPath', currentPath);
 
-        try {
-            addLog(`Starting upload: ${file.name}`);
-            const formData = new FormData();
-            formData.append('file', file);
-            if (currentPath) { formData.append('folderPath', currentPath); }
+        const xhr = new XMLHttpRequest();
+        uploadXHRs.current[fileId] = xhr;
+        let lastLoaded = 0, lastTime = Date.now();
 
-            const xhr = new XMLHttpRequest();
-            uploadXHRs.current[fileId] = xhr;
-            let lastLoaded = 0;
-            let lastTime = Date.now();
-
-            xhr.upload.addEventListener('progress', (e) => {
-                if (e.lengthComputable) {
-                    const progress = (e.loaded / e.total) * 100;
-                    const currentTime = Date.now();
-                    const timeDiff = (currentTime - lastTime) / 1000;
-                    const bytesDiff = e.loaded - lastLoaded;
-                    const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
-                    setActiveUploads(prev => ({
-                        ...prev,
-                        [fileId]: { ...prev[fileId], progress, speed, status: 'uploading' }
-                    }));
-                    lastLoaded = e.loaded;
-                    lastTime = currentTime;
-                }
-            });
-
-            xhr.addEventListener('load', () => {
-                setActiveUploads(prev => ({
-                    ...prev,
-                    [fileId]: { ...prev[fileId], progress: 100, speed: 0, status: 'file_sent' }
-                }));
-            });
-
-            xhr.addEventListener('readystatechange', () => {
-                if (xhr.readyState === XMLHttpRequest.DONE) {
-                    try {
-                        if (xhr.status === 200) {
-                            const response = JSON.parse(xhr.responseText);
-                            if (response.success) {
-                                setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'completed' } }));
-                                addLog(`Upload of ${file.name} completed.`);
-                                setFetchTrigger(prev => prev + 1);
-                            } else {
-                                throw new Error(response.error || 'Server processing failed');
-                            }
-                        } else {
-                            throw new Error(`Server error: ${xhr.status}`);
-                        }
-                    } catch (err) {
-                        setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'failed', message: err.message } }));
-                        addLog(`Upload of ${file.name} failed: ${err.message}`);
-                    }
-                    delete uploadXHRs.current[fileId];
-                }
-            });
-
-            xhr.addEventListener('error', () => {
-                setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'failed', message: 'Network error' } }));
-                delete uploadXHRs.current[fileId];
-            });
-            xhr.addEventListener('abort', () => {
-                setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'aborted', message: 'Cancelled' } }));
-                delete uploadXHRs.current[fileId];
-            });
-
-            xhr.open('POST', `${BACKEND_URL}/upload`);
-            xhr.setRequestHeader('Authorization', getAuthHeaders().Authorization || '');
-            xhr.send(formData);
-        } catch (err) {
-            setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'failed', message: err.message } }));
-            delete uploadXHRs.current[fileId];
-        }
-    };
-
-    const viewItemProperties = async (item) => {
-        try {
-            if (item.isFolder) {
-                setSelectedItem({
-                    ...item,
-                    sizeFormatted: '—',
-                    lastModified: item.modified,
-                });
-            } else {
-                const response = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(item.path)}/properties`, { headers: getAuthHeaders() });
-                const properties = await response.json();
-                if (!response.ok) throw new Error(properties.error || 'Failed to get properties');
-                setSelectedItem({
-                    ...properties,
-                    sizeFormatted: formatFileSize(properties.size)
-                });
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const progress = (e.loaded / e.total) * 100;
+                const speed = (e.loaded - lastLoaded) / ((Date.now() - lastTime) / 1000);
+                lastLoaded = e.loaded; lastTime = Date.now();
+                setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], progress, speed, status: 'uploading' } }));
             }
+        };
+        xhr.onload = () => {
+            try {
+                if (xhr.status === 200) {
+                    const res = JSON.parse(xhr.responseText);
+                    if (res.success) {
+                        setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'completed' } }));
+                        setFetchTrigger(t => t + 1);
+                    } else throw new Error(res.error);
+                } else throw new Error(`Server error: ${xhr.status}`);
+            } catch (err) {
+                setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'failed', message: err.message } }));
+            }
+        };
+        xhr.onerror = () => setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'failed', message: 'Network error' } }));
+        xhr.onabort = () => setActiveUploads(prev => ({ ...prev, [fileId]: { ...prev[fileId], status: 'aborted' } }));
+
+        xhr.open('POST', `${BACKEND_URL}/upload`);
+        xhr.setRequestHeader('Authorization', getAuthHeaders().Authorization || '');
+        xhr.send(formData);
+    }, [currentPath, getAuthHeaders]);
+
+    const viewItemProperties = useCallback(async (item) => {
+        try {
+            const res = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(item.path)}/properties`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error((await res.json()).error);
+            const properties = await res.json();
+            setSelectedItem({ ...properties, sizeFormatted: formatFileSize(properties.size) });
             setShowProperties(true);
         } catch (error) {
             addLog('Failed to get item properties: ' + error.message);
         }
-    };
+    }, [getAuthHeaders]);
 
-    const handleDownload = async (e, item) => {
+    const handleDownload = useCallback(async (e, item) => {
         e.stopPropagation();
-        if (!item.downloadUrl) return;
-        addLog(`Initiating download for ${item.name}...`);
+        if (!item.path) return;
         try {
-            const response = await fetch(item.downloadUrl, { headers: getAuthHeaders() });
-            if (!response.ok) throw new Error(`Server responded with ${response.status}`);
-            const blob = await response.blob();
+            const res = await fetch(`${BACKEND_URL}/f/${encodeURIComponent(item.path)}`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+            const blob = await res.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = item.name;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            a.href = url; a.download = item.name;
+            document.body.appendChild(a); a.click(); a.remove();
             window.URL.revokeObjectURL(url);
-            addLog(`Download started for ${item.name}`);
         } catch (err) {
-            addLog(`Download failed for ${item.name}: ${err.message}`);
+            addLog(`Download failed: ${err.message}`);
         }
-    };
+    }, [getAuthHeaders]);
 
-    const deleteItem = async (item) => {
-        if (!item || !item.path) return;
-        if (!window.confirm(`Delete "${item.name}"? This action cannot be undone.`)) return;
-
+    const deleteItem = useCallback(async (item) => {
+        if (!item || !window.confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
         try {
-            const response = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(item.path)}${item.isFolder ? '/' : ''}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders(),
-            });
-            if (response.ok) {
-                addLog(`Deleted: ${item.name}`);
-                setFetchTrigger(prev => prev + 1);
-            } else {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Unknown error');
-            }
+            const res = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(item.path)}${item.isFolder ? '/' : ''}`, { method: 'DELETE', headers: getAuthHeaders() });
+            if (!res.ok) throw new Error((await res.json()).error);
+            setFetchTrigger(t => t + 1);
         } catch (error) {
             addLog(`Failed to delete: ${error.message}`);
         }
-    };
+    }, [getAuthHeaders]);
 
-    const renameItem = async (itemToRename) => {
+    const renameItem = useCallback(async (itemToRename) => {
         if (!newItemName.trim() || newItemName.trim() === itemToRename.name) return;
         try {
-            const response = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(itemToRename.path)}/rename`, {
+            const res = await fetch(`${BACKEND_URL}/file/${encodeURIComponent(itemToRename.path)}/rename`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify({ newName: newItemName.trim(), isFolder: itemToRename.isFolder })
             });
-            if (response.ok) {
-                addLog(`Renamed to ${newItemName.trim()}`);
-                setRenamingItem(null);
-                setNewItemName('');
-                setShowProperties(false);
-                setFetchTrigger(prev => prev + 1);
-            } else {
-                const errorData = await response.json();
-                throw new Error(errorData.error);
-            }
+            if (!res.ok) throw new Error((await res.json()).error);
+            setRenamingItem(null); setNewItemName(''); setShowProperties(false);
+            setFetchTrigger(t => t + 1);
         } catch (error) {
             addLog('Failed to rename: ' + error.message);
         }
-    };
+    }, [getAuthHeaders, newItemName]);
 
-    const createFolder = async () => {
+    const createFolder = useCallback(async () => {
         const folderName = prompt('Enter new folder name:');
         if (!folderName || !folderName.trim()) return;
         try {
-            const folderPath = currentPath ? `${currentPath}/${folderName.trim()}` : folderName.trim();
-            const response = await fetch(`${BACKEND_URL}/folder`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-                body: JSON.stringify({ path: folderPath })
+            const path = currentPath ? `${currentPath}/${folderName.trim()}` : folderName.trim();
+            const res = await fetch(`${BACKEND_URL}/folder`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ path })
             });
-            if (response.ok) {
-                addLog(`Folder created: ${folderName.trim()}`);
-                setFetchTrigger(prev => prev + 1);
-            } else {
-                const errorData = await response.json();
-                throw new Error(errorData.error);
-            }
+            if (!res.ok) throw new Error((await res.json()).error);
+            setFetchTrigger(t => t + 1);
         } catch (error) {
             addLog('Failed to create folder: ' + error.message);
         }
-    };
+    }, [currentPath, getAuthHeaders]);
 
     const openVideoModal = (item) => {
-        if (!item.streamUrl) return;
-        setVideoModal({ open: true, item, url: item.streamUrl });
+        if (!item.path) return;
+        setVideoModal({ open: true, item, url: `${BACKEND_URL}/stream/${encodeURIComponent(item.path)}` });
     };
     const closeVideoModal = () => {
         if (videoRef.current) videoRef.current.pause();
         setVideoModal({ open: false, item: null, url: '' });
-        setVideoState(prev => ({ ...prev, playing: false, fullscreen: false }));
     };
     const togglePlay = () => videoRef.current?.paused ? videoRef.current?.play() : videoRef.current?.pause();
     const handleSeek = (e) => { if (videoRef.current) videoRef.current.currentTime = e.target.value; };
     const toggleFullscreen = () => {
         const modal = document.getElementById('video-modal');
-        if (!document.fullscreenElement) {
-            modal?.requestFullscreen().catch(err => console.error(err));
-        } else {
-            document.exitFullscreen();
-        }
-        setVideoState(p => ({ ...p, fullscreen: !p.fullscreen }));
+        if (!document.fullscreenElement) modal?.requestFullscreen().catch(err => console.error(err));
+        else document.exitFullscreen();
     };
-
     const formatTime = (seconds) => {
+        if (isNaN(seconds)) return '0:00';
         const date = new Date(seconds * 1000);
         const hh = date.getUTCHours();
         const mm = date.getUTCMinutes();
         const ss = date.getUTCSeconds().toString().padStart(2, '0');
-        if (hh > 0) return `${hh}:${mm.toString().padStart(2, '0')}:${ss}`;
-        return `${mm}:${ss}`;
+        return hh > 0 ? `${hh}:${mm.toString().padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
     };
 
     const getFileIcon = (item) => {
         if (item.isFolder) return <Folder className="w-full h-full" />;
-        if (item.isImage) return <FileImage className="w-full h-full" />;
-        if (item.isVideo) return <FileVideo className="w-full h-full" />;
-        if (item.isAudio) return <FileMusic className="w-full h-full" />;
-        if (item.isSpreadsheet) return <FileSpreadsheet className="w-full h-full" />;
-        if (item.isCode || item.isHtml) return <FileCode className="w-full h-full" />;
-        if (item.isArchive) return <FileArchive className="w-full h-full" />;
-        if (item.isPdf) return <FileText className="w-full h-full text-red-400" />;
+        if (isImageFile(item.name)) return <FileImage className="w-full h-full" />;
+        if (isVideoFile(item.name)) return <FileVideo className="w-full h-full" />;
+        if (isAudioFile(item.name)) return <FileMusic className="w-full h-full" />;
+        if (isSpreadsheetFile(item.name)) return <FileSpreadsheet className="w-full h-full" />;
+        if (isCodeFile(item.name) || isHtmlFile(item.name)) return <FileCode className="w-full h-full" />;
+        if (isArchiveFile(item.name)) return <FileArchive className="w-full h-full" />;
+        if (isPdfFile(item.name)) return <FileText className="w-full h-full text-red-400" />;
         return <FileText className="w-full h-full" />;
     };
 
-    const filteredItems = items.filter(item => {
-        const nameToSearch = item.name || '';
-        return nameToSearch.toLowerCase().includes(searchTerm.toLowerCase());
-    });
+    const filteredItems = items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const handleContextMenu = (e, item) => {
         e.preventDefault();
@@ -629,47 +456,26 @@ const FileUploader = () => {
     }, [contextMenu.visible, handleClickOutsideContextMenu]);
 
     const handleMouseEnterItem = (e, item) => {
+        // If a preview for the same item is already visible or loading, do nothing.
+        if (hoveredItem?.path === item.path || activePreviewRequest.current === item.path) {
+            return;
+        }
+
         clearTimeout(previewTimeoutRef.current);
-        if (currentPreviewAbortController.current) currentPreviewAbortController.current.abort();
-        setPreviewContent(null);
-        setPreviewLoading(false);
         if (item.isFolder) { setHoveredItem(null); return; }
 
         const targetElement = e.currentTarget;
-        previewTimeoutRef.current = setTimeout(async () => {
+        previewTimeoutRef.current = setTimeout(() => {
             if (!document.body.contains(targetElement)) return;
-
             const rect = targetElement.getBoundingClientRect();
-            const xPos = rect.right + 10;
-            const yPos = rect.top;
-            setPreviewCoords({ x: xPos, y: yPos });
-            setHoveredItem(item);
-            setPreviewLoading(true);
-
-            try {
-                const controller = new AbortController();
-                currentPreviewAbortController.current = controller;
-                const response = await fetch(`${BACKEND_URL}/preview/${encodeURIComponent(item.path)}`, { headers: getAuthHeaders(), signal: controller.signal });
-                if (!response.ok) throw new Error('Failed to fetch preview');
-                const data = await response.json();
-                setPreviewContent(data);
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    setPreviewContent({ type: 'error', message: 'Preview unavailable' });
-                }
-            } finally {
-                setPreviewLoading(false);
-                currentPreviewAbortController.current = null;
-            }
+            setPreviewCoords({ x: rect.right + 10, y: rect.top });
+            setHoveredItem(item); // This will trigger the FilePreview component to render and fetch
         }, 500);
     };
 
     const handleMouseLeaveItem = () => {
         clearTimeout(previewTimeoutRef.current);
-        if (currentPreviewAbortController.current) currentPreviewAbortController.current.abort();
-        setHoveredItem(null);
-        setPreviewContent(null);
-        setPreviewLoading(false);
+        setHoveredItem(null); // This will unmount the FilePreview component
     };
 
     const toggleNewMenu = useCallback(() => setShowNewMenu(prev => !prev), []);
@@ -687,11 +493,10 @@ const FileUploader = () => {
     const handleItemAction = (action, item, event) => {
         if (event) event.stopPropagation();
         setContextMenu({ visible: false });
-
         switch (action) {
             case 'open':
                 if (item.isFolder) navigateToFolder(item.path);
-                else if (item.isVideo) openVideoModal(item);
+                else if (isVideoFile(item.name)) openVideoModal(item);
                 else viewItemProperties(item);
                 break;
             case 'download': handleDownload(event, item); break;
@@ -699,16 +504,12 @@ const FileUploader = () => {
             case 'rename':
                 setRenamingItem(item);
                 setNewItemName(item.name);
-                if (!showProperties || selectedItem?.path !== item.path) {
-                    viewItemProperties(item);
-                }
+                if (!showProperties || selectedItem?.path !== item.path) viewItemProperties(item);
                 break;
             case 'delete': deleteItem(item); break;
             default: break;
         }
     };
-
-    // --- UI Components (Revamped for the new design) ---
 
     const AuthScreen = () => (
         <div className="flex items-center justify-center min-h-screen bg-[#0a0a0a] text-white font-sans">
@@ -718,47 +519,23 @@ const FileUploader = () => {
                     <h1 className="text-2xl font-semibold">Secure Vault</h1>
                     <p className="text-sm text-gray-500">Enter your credentials to continue</p>
                 </div>
-
-                {authError && (
-                    <div className="p-3 text-center text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded-md">
-                        {authError}
-                    </div>
-                )}
-
+                {authError && <div className="p-3 text-center text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded-md">{authError}</div>}
                 <div className="space-y-4">
-                    <input
-                        type="text" placeholder="Vault Number" value={vaultNumberInput} onChange={(e) => setVaultNumberInput(e.target.value)}
-                        className="w-full px-4 py-2 bg-[#0a0a0a] border border-[#333] rounded-md placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-white transition"
-                    />
-                    <input
-                        type="password" placeholder="Passcode" value={passcodeInput} onChange={(e) => setPasscodeInput(e.target.value)}
-                        className="w-full px-4 py-2 bg-[#0a0a0a] border border-[#333] rounded-md placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-white transition"
-                    />
+                    <input type="text" placeholder="Vault Number" value={vaultNumberInput} onChange={(e) => setVaultNumberInput(e.target.value)} className="w-full px-4 py-2 bg-[#0a0a0a] border border-[#333] rounded-md placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-white transition" />
+                    <input type="password" placeholder="Passcode" value={passcodeInput} onChange={(e) => setPasscodeInput(e.target.value)} className="w-full px-4 py-2 bg-[#0a0a0a] border border-[#333] rounded-md placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-white transition" />
                 </div>
-
                 <div className="space-y-3">
-                    <button onClick={() => handleAuth('login')} className="w-full py-2 font-semibold text-black bg-white rounded-md hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-[#111]">
-                        {authLoading ? <Loader2 className="w-5 h-5 mx-auto animate-spin" /> : "Unlock"}
-                    </button>
-                    <button onClick={() => handleAuth('register')} className="w-full py-2 font-semibold text-gray-300 bg-transparent border border-[#333] rounded-md hover:bg-[#222] hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-[#111]">
-                        {authLoading ? <Loader2 className="w-5 h-5 mx-auto animate-spin" /> : "Create New Vault"}
-                    </button>
+                    <button onClick={() => handleAuth('login')} className="w-full py-2 font-semibold text-black bg-white rounded-md hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-[#111]">{authLoading ? <Loader2 className="w-5 h-5 mx-auto animate-spin" /> : "Unlock"}</button>
+                    <button onClick={() => handleAuth('register')} className="w-full py-2 font-semibold text-gray-300 bg-transparent border border-[#333] rounded-md hover:bg-[#222] hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-[#111]">{authLoading ? <Loader2 className="w-5 h-5 mx-auto animate-spin" /> : "Create New Vault"}</button>
                 </div>
             </div>
         </div>
     );
 
     const ItemCard = ({ item }) => (
-        <div
-            className="group relative flex flex-col bg-[#111111] border border-[#222] rounded-lg p-3 cursor-pointer transition-all duration-200 hover:bg-[#1a1a1a] hover:border-[#444] hover:shadow-lg"
-            onClick={() => handleItemAction('open', item)}
-            onContextMenu={(e) => handleContextMenu(e, item)}
-            onMouseEnter={(e) => handleMouseEnterItem(e, item)}
-            onMouseLeave={handleMouseLeaveItem}
-        >
-            <div className="flex-grow flex items-center justify-center mb-3">
-                <div className="w-16 h-16 text-gray-400">{getFileIcon(item)}</div>
-            </div>
+        <div className="group relative flex flex-col bg-[#111111] border border-[#222] rounded-lg p-3 cursor-pointer transition-all duration-200 hover:bg-[#1a1a1a] hover:border-[#444] hover:shadow-lg"
+            onClick={() => handleItemAction('open', item)} onContextMenu={(e) => handleContextMenu(e, item)} onMouseEnter={(e) => handleMouseEnterItem(e, item)} onMouseLeave={handleMouseLeaveItem}>
+            <div className="flex-grow flex items-center justify-center mb-3"><div className="w-16 h-16 text-gray-400">{getFileIcon(item)}</div></div>
             <div className="text-center">
                 <p className="text-sm font-medium text-white w-full truncate" title={item.name}>{item.name}</p>
                 {!item.isFolder && <p className="text-xs text-gray-500">{formatFileSize(item.size)}</p>}
@@ -827,7 +604,7 @@ const FileUploader = () => {
             {contextMenu.visible && <ContextMenu />}
             {showProperties && <PropertiesModal />}
             {videoModal.open && <VideoPlayerModal />}
-            {hoveredItem && <FilePreview item={hoveredItem} x={previewCoords.x} y={previewCoords.y} />}
+            {hoveredItem && <FilePreview item={hoveredItem} x={previewCoords.x} y={previewCoords.y} activePreviewRequest={activePreviewRequest} />}
             <style>{`
                 ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #111111; }
                 ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #444; }
@@ -890,7 +667,7 @@ const FileUploader = () => {
         </div>
     );
 
-    const FilePreview = ({ item, x, y }) => {
+    const FilePreview = ({ item, x, y, activePreviewRequest }) => {
         if (!item) return null;
 
         const [isLoading, setIsLoading] = useState(true);
@@ -900,6 +677,7 @@ const FileUploader = () => {
         useEffect(() => {
             setIsLoading(true);
             setObjectUrl(null);
+            activePreviewRequest.current = item.path;
             const controller = new AbortController();
 
             const fetchPreview = async () => {
@@ -923,7 +701,10 @@ const FileUploader = () => {
                 } catch (error) {
                     if (error.name !== 'AbortError') setPreviewData({ type: 'error', message: 'Preview unavailable' });
                 } finally {
-                    if (!controller.signal.aborted) setIsLoading(false);
+                    if (!controller.signal.aborted) {
+                        setIsLoading(false);
+                        activePreviewRequest.current = null;
+                    }
                 }
             };
 
@@ -932,8 +713,9 @@ const FileUploader = () => {
             return () => {
                 controller.abort();
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
+                activePreviewRequest.current = null;
             };
-        }, [item]); // Re-run only when the item prop changes
+        }, [item, getAuthHeaders, activePreviewRequest]);
 
         const renderContent = () => {
             if (isLoading) return <Loader2 className="w-8 h-8 animate-spin text-white/50" />;
