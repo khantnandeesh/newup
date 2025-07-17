@@ -815,93 +815,95 @@ const FileUploader = () => {
     };
   }, [contextMenu.visible, handleClickOutsideContextMenu]);
 
+const handleMouseEnterItem = (e, item) => {
+  // Clear any existing timeout and abort any ongoing fetch
+  clearTimeout(previewTimeoutRef.current);
+  if (currentPreviewAbortController.current) {
+    currentPreviewAbortController.current.abort();
+  }
+  setPreviewContent(null); // Clear previous preview content
+  setPreviewLoading(false); // Reset loading state
 
-  // UPDATED handleMouseEnterItem to fetch preview content
-  const handleMouseEnterItem = (e, item) => {
-    // Clear any existing timeout and abort any ongoing fetch
-    clearTimeout(previewTimeoutRef.current);
-    if (currentPreviewAbortController.current) {
-      currentPreviewAbortController.current.abort();
-    }
-    setPreviewContent(null); // Clear previous preview content
-    setPreviewLoading(false); // Reset loading state
+  // Only show preview for files, not folders
+  if (item.isFolder) {
+    setHoveredItem(null); // Ensure no preview for folders
+    return;
+  }
 
-    // Only show preview for files, not folders
-    if (item.isFolder) {
-      setHoveredItem(null); // Ensure no preview for folders
+  // Store a reference to the target element
+  const targetElement = e.currentTarget; 
+
+  previewTimeoutRef.current = setTimeout(async () => {
+    // IMPORTANT: Check if the target element still exists in the DOM
+    if (!targetElement || !document.body.contains(targetElement)) {
+      console.log("Hover target element no longer in DOM, aborting preview.");
+      setHoveredItem(null);
+      setPreviewContent(null);
+      setPreviewLoading(false);
       return;
     }
 
-    previewTimeoutRef.current = setTimeout(async () => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const previewWidth = 300; // Increased preview width for text/PDF
-      const previewHeight = 250; // Increased preview height for text/PDF
+    const rect = targetElement.getBoundingClientRect(); // Use targetElement here
+    const viewportWidth = window.innerWidth;
+    const previewWidth = 300; // Increased preview width for text/PDF
+    const previewHeight = 250; // Increased preview height for text/PDF
 
-      let xPos = rect.right + 10;
-      let yPos = rect.top;
+    let xPos = rect.right + 10;
+    let yPos = rect.top;
 
-      if (xPos + previewWidth > viewportWidth - 20) {
-        xPos = rect.left - previewWidth - 10;
-        if (xPos < 20) {
-          xPos = rect.left;
-          yPos = rect.bottom + 10;
-        }
+    if (xPos + previewWidth > viewportWidth - 20) {
+      xPos = rect.left - previewWidth - 10;
+      if (xPos < 20) {
+        xPos = rect.left;
+        yPos = rect.bottom + 10;
       }
-      if (yPos + previewHeight > window.innerHeight - 20) {
-        yPos = window.innerHeight - (previewHeight + 20);
-        if (yPos < 0) yPos = 20;
-      }
+    }
+    if (yPos + previewHeight > window.innerHeight - 20) {
+      yPos = window.innerHeight - (previewHeight + 20);
+      if (yPos < 0) yPos = 20;
+    }
 
-      setPreviewCoords({ x: xPos, y: yPos });
-      setHoveredItem(item);
-      setPreviewLoading(true);
+    setPreviewCoords({ x: xPos, y: yPos });
+    setHoveredItem(item);
+    setPreviewLoading(true);
 
-      // Fetch preview content based on file type
-      try {
-        const controller = new AbortController();
-        currentPreviewAbortController.current = controller; // Store controller to abort later
-        const signal = controller.signal;
+    // Fetch preview content based on file type
+    try {
+      const controller = new AbortController();
+      currentPreviewAbortController.current = controller; // Store controller to abort later
+      const signal = controller.signal;
 
-        if (item.isImage) {
-          // No fetch needed for images, just set the downloadUrl
-          setPreviewContent({ type: 'image', url: item.downloadUrl });
-          setPreviewLoading(false);
-        } else if (item.isVideo) {
-          // No fetch needed for video thumbnail, just set the streamUrl/thumbnail logic
-          setPreviewContent({ type: 'video', url: item.streamUrl });
-          setPreviewLoading(false);
-        } else if (item.isPdf || item.isHtml) {
-          // For PDF/HTML, we can try to use an iframe directly with the download URL
-          // CAUTION: This might be blocked by browser security (X-Frame-Options)
-          setPreviewContent({ type: item.isPdf ? 'pdf' : 'html', url: item.downloadUrl });
-          setPreviewLoading(false);
-        } else if (item.isCode || item.isDocument || item.isSpreadsheet || item.isAudio) { // Assuming these can be previewed as text
-          // For text-based files, fetch a snippet or full text
-          // IMPORTANT: Your backend must allow fetching these as raw text.
-          // For audio, we might just want a player. For now, text fallback.
-          const headers = getAuthHeaders();
-          const response = await fetch(item.downloadUrl, { headers, signal });
-          if (!response.ok) throw new Error('Failed to fetch preview');
-          const textContent = await response.text();
-          setPreviewContent({ type: 'text', content: textContent.substring(0, 500) + (textContent.length > 500 ? '...' : '') }); // Show first 500 chars
-          setPreviewLoading(false);
-        } else {
-          // Generic fallback for unhandled types
-          setPreviewContent({ type: 'none' });
-          setPreviewLoading(false);
-        }
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          addLog(`Preview fetch for ${item.name} aborted.`);
-        } else {
-          console.error('Failed to load preview:', error);
-          setPreviewContent({ type: 'error', message: 'Failed to load preview.' });
-        }
+      if (item.isImage) {
+        setPreviewContent({ type: 'image', url: item.downloadUrl });
+        setPreviewLoading(false);
+      } else if (item.isVideo) {
+        setPreviewContent({ type: 'video', url: item.streamUrl });
+        setPreviewLoading(false);
+      } else if (item.isPdf || item.isHtml) {
+        setPreviewContent({ type: item.isPdf ? 'pdf' : 'html', url: item.downloadUrl });
+        setPreviewLoading(false);
+      } else if (item.isCode || item.isDocument || item.isSpreadsheet || item.isAudio) {
+        const headers = getAuthHeaders();
+        const response = await fetch(item.downloadUrl, { headers, signal });
+        if (!response.ok) throw new Error('Failed to fetch preview');
+        const textContent = await response.text();
+        setPreviewContent({ type: 'text', content: textContent.substring(0, 500) + (textContent.length > 500 ? '...' : '') });
+        setPreviewLoading(false);
+      } else {
+        setPreviewContent({ type: 'none' });
         setPreviewLoading(false);
       }
-    }, 500); // Increased delay slightly to avoid flashing for quick mouse movements
-  };
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        addLog(`Preview fetch for ${item.name} aborted.`);
+      } else {
+        console.error('Failed to load preview:', error);
+        setPreviewContent({ type: 'error', message: 'Failed to load preview.' });
+      }
+      setPreviewLoading(false);
+    }
+  }, 500);
+};
 
 
   // UPDATED handleMouseLeaveItem to clear preview content immediately
