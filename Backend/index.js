@@ -12,7 +12,7 @@ import jwt from "jsonwebtoken";
 import fs from 'fs';
 
 dotenv.config();
-
+let BACKEND_URL="https://newup-4g3z.onrender.com"
 const app = express();
 app.use(cors());
 const port = process.env.PORT || 3000;
