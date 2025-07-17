@@ -484,7 +484,7 @@ const FileUploader = () => {
   const viewItemProperties = async (item) => {
     try {
       if (item.isFolder) {
-        setSelectedItem({
+        setSelectedAItem({
           name: item.name,
           path: item.path,
           isFolder: true,
@@ -737,12 +737,12 @@ const FileUploader = () => {
     return <FileText className="w-full h-full text-gray-400" />;
   };
 
-   formatSpeed = (bytesPerSecond) => {
+    formatSpeed = (bytesPerSecond) => {
     if (bytesPerSecond >= 1024 * 1024) { return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`; }
     else if (bytesPerSecond >= 1024) { return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`; }
     else { return `${bytesPerSecond.toFixed(0)} B/s`; }
   };
-   formatFileSize = (bytes) => {
+    formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024; const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -1143,7 +1143,7 @@ const FileUploader = () => {
           </div>
 
           {/* Upload Progress/Status for Multiple Files */}
-          {totalUploadsStarted > 0 && ( // Show this area if any uploads were started
+          {!areAllUploadsFinished && totalUploadsStarted > 0 && ( // Show only while uploads are NOT all finished
             <div className="bg-blue-900 border border-blue-700 rounded-xl p-4 flex flex-col space-y-3 shadow-lg animate-fadeIn">
               <div className="flex items-center space-x-4">
                 {isAnyUploading ? (
@@ -1165,12 +1165,7 @@ const FileUploader = () => {
                     <p className="text-xs text-blue-300 mt-1">Overall Speed: {formatSpeed(overallSpeed)}</p>
                   )}
                 </div>
-                {/* Clear all finished uploads button */}
-                {areAllUploadsFinished && (
-                  <button onClick={() => setActiveUploads({})} className="text-blue-500 hover:text-blue-300 p-1">
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
+                {/* Clear all finished uploads button - moved to the final summary box */}
               </div>
               {/* Show individual file progress */}
               {(totalUploadsStarted > 1 || !isAnyUploading) && ( // Show details if multiple or if all completed/failed
@@ -1192,8 +1187,26 @@ const FileUploader = () => {
               )}
             </div>
           )}
+          {/* NEW: Summary box for when all uploads are finished */}
+          {areAllUploadsFinished && totalUploadsStarted > 0 && (
+            <div className="bg-emerald-900 border border-emerald-700 rounded-xl p-4 animate-fadeIn shadow-lg">
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-emerald-200">All uploads completed!</h3>
+                  <p className="text-sm text-emerald-300 mt-1">
+                    {completedUploadsCount} out of {totalUploadsStarted} files successfully uploaded.
+                    {completedUploadsCount < totalUploadsStarted && ` (${totalUploadsStarted - completedUploadsCount} failed/aborted).`}
+                  </p>
+                </div>
+                <button onClick={() => setActiveUploads({})} className="text-emerald-500 hover:text-emerald-300 p-1">
+                  <X className="w-5 h-5" title="Clear upload history" />
+                </button>
+              </div>
+            </div>
+          )}
 
-          {link && !totalUploadsStarted && (
+          {link && !totalUploadsStarted && ( // Only show if link exists and no active uploads (implies single file upload)
             <div className="bg-emerald-900 border border-emerald-700 rounded-xl p-4 animate-fadeIn shadow-lg">
               <div className="flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
