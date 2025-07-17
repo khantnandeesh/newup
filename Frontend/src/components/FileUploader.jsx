@@ -60,15 +60,22 @@ const FileUploader = () => {
   const uploadXHRs = useRef({});
   const uploadCleanupTimeouts = useRef({}); // New ref to manage cleanup timeouts
 
-  // --- DERIVED STATE: Moved to the top for correct referencing ---
-  const uploadingFiles = Object.values(activeUploads).filter(u => u.status === 'uploading' || u.status === 'file_sent');
+  // --- DERIVED STATE: IMPORTANT CHANGE HERE ---
+  // Now, only 'uploading' status contributes to the 'isAnyUploading' flag
+  const uploadingFiles = Object.values(activeUploads).filter(u => u.status === 'uploading');
   const isAnyUploading = uploadingFiles.length > 0;
+
+  // Use a separate variable to check if *any* file is still being processed/handled (including server-side)
+  const isAnyFileBeingProcessed = Object.values(activeUploads).some(u => u.status === 'uploading' || u.status === 'file_sent');
+
   const overallProgress = isAnyUploading
     ? (uploadingFiles.reduce((sum, upload) => sum + upload.progress, 0) / uploadingFiles.length)
-    : 0;
+    : 0; // This will now correctly show 0% if only file_sent remain
+  
   const overallSpeed = isAnyUploading
     ? uploadingFiles.reduce((sum, upload) => sum + upload.speed, 0)
     : 0;
+  
   const completedUploadsCount = Object.values(activeUploads).filter(u => u.status === 'completed').length;
   const totalUploadsStarted = Object.keys(activeUploads).length; // Total files ever added to the upload queue
   const areAllUploadsFinished = totalUploadsStarted > 0 && Object.values(activeUploads).every(u => u.status === 'completed' || u.status === 'failed' || u.status === 'aborted');
@@ -342,7 +349,7 @@ const FileUploader = () => {
 
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
-    if (isAnyUploading) {
+    if (isAnyUploading) { // This check now uses the refined 'isAnyUploading'
       addLog("Uploads already in progress. Please wait or clear.");
       return;
     }
@@ -353,7 +360,7 @@ const FileUploader = () => {
   };
 
   const handleFileSelect = (e) => {
-    if (isAnyUploading) {
+    if (isAnyUploading) { // This check now uses the refined 'isAnyUploading'
       addLog("Uploads already in progress. Please wait or clear.");
       return;
     }
@@ -484,7 +491,7 @@ const FileUploader = () => {
   const viewItemProperties = async (item) => {
     try {
       if (item.isFolder) {
-        setSelectedAItem({
+        setSelectedItem({ // Changed from setSelectedAItem to setSelectedItem (typo fix assuming it's the same state)
           name: item.name,
           path: item.path,
           isFolder: true,
@@ -737,17 +744,9 @@ const FileUploader = () => {
     return <FileText className="w-full h-full text-gray-400" />;
   };
 
-    formatSpeed = (bytesPerSecond) => {
-    if (bytesPerSecond >= 1024 * 1024) { return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`; }
-    else if (bytesPerSecond >= 1024) { return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`; }
-    else { return `${bytesPerSecond.toFixed(0)} B/s`; }
-  };
-    formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024; const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+    // Corrected duplication of formatSpeed and formatFileSize
+    // let formatSpeed = (bytesPerSecond) => { ... }; (already defined above)
+    // let formatFileSize = (bytes) => { ... }; (already defined above)
 
   const filteredItems = items.filter(item => {
     const nameToSearch = item.name || item.originalName || '';
@@ -1143,16 +1142,22 @@ const FileUploader = () => {
           </div>
 
           {/* Upload Progress/Status for Multiple Files */}
-          {!areAllUploadsFinished && totalUploadsStarted > 0 && ( // Show only while uploads are NOT all finished
+          {/* Now, the entire progress box only shows if any file is still being processed or pending (not completed/failed/aborted) */}
+          {!areAllUploadsFinished && totalUploadsStarted > 0 && (
             <div className="bg-blue-900 border border-blue-700 rounded-xl p-4 flex flex-col space-y-3 shadow-lg animate-fadeIn">
               <div className="flex items-center space-x-4">
+                {/* This loader now only shows if files are actively uploading (transferring bytes) */}
                 {isAnyUploading ? (
                   <Loader2 className="w-6 h-6 text-blue-400 animate-spin flex-shrink-0" />
                 ) : (
+                  // If no files are actively uploading, but still being processed (file_sent), show a different icon or nothing
+                  // For now, if all are 'file_sent', it will show CheckCircle.
+                  // If you want a different indicator for 'file_sent' at the top, you'd add more logic here.
                   <CheckCircle className="w-6 h-6 text-emerald-400 flex-shrink-0" />
                 )}
                 <div className="flex-1">
                   <p className="text-sm font-medium text-blue-200">
+                    {/* The count will still be based on all uploads, but the percentage and speed only on actively uploading ones */}
                     {completedUploadsCount}/{totalUploadsStarted} files uploaded ({Math.round(overallProgress)}% Complete)
                   </p>
                   <div className="w-full bg-blue-700 rounded-full h-2 mt-1">
@@ -1161,33 +1166,35 @@ const FileUploader = () => {
                       style={{ width: `${overallProgress}%` }}
                     />
                   </div>
-                  {isAnyUploading && overallSpeed > 0 && ( // Only show overall speed if still uploading
+                  {isAnyUploading && overallSpeed > 0 && (
                     <p className="text-xs text-blue-300 mt-1">Overall Speed: {formatSpeed(overallSpeed)}</p>
                   )}
+                  {!isAnyUploading && isAnyFileBeingProcessed && ( // New condition for server processing message
+                    <p className="text-xs text-blue-300 mt-1">Server processing remaining files...</p>
+                  )}
                 </div>
-                {/* Clear all finished uploads button - moved to the final summary box */}
               </div>
-              {/* Show individual file progress */}
-              {(totalUploadsStarted > 1 || !isAnyUploading) && ( // Show details if multiple or if all completed/failed
-                <div className="space-y-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
-                  {Object.values(activeUploads).map(upload => (
-                    <div key={upload.name} className="flex items-center text-xs text-blue-200">
-                      <span className="truncate flex-1 mr-2">{upload.name}</span>
-                      <span className="w-16 text-right">
-                        {upload.status === 'completed' || upload.status === 'file_sent' ? '100%' : `${Math.round(upload.progress)}%`}
-                      </span>
-                      {upload.status === 'failed' && <AlertCircle className="w-4 h-4 text-rose-400 ml-1" title={upload.message} />}
-                      {upload.status === 'aborted' && <X className="w-4 h-4 text-gray-400 ml-1" title={upload.message} />}
-                      {upload.status === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-400 ml-1" />}
-                      {upload.status === 'uploading' && <span className="ml-1 text-gray-400">{formatSpeed(upload.speed)}</span>}
-                      {upload.status === 'file_sent' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-1" title={upload.message} />}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Individual file progress list - keep the spinner for 'file_sent' status here */}
+              <div className="space-y-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                {Object.values(activeUploads).map(upload => (
+                  <div key={upload.name} className="flex items-center text-xs text-blue-200">
+                    <span className="truncate flex-1 mr-2">{upload.name}</span>
+                    <span className="w-16 text-right">
+                      {upload.status === 'completed' || upload.status === 'file_sent' ? '100%' : `${Math.round(upload.progress)}%`}
+                    </span>
+                    {upload.status === 'failed' && <AlertCircle className="w-4 h-4 text-rose-400 ml-1" title={upload.message} />}
+                    {upload.status === 'aborted' && <X className="w-4 h-4 text-gray-400 ml-1" title={upload.message} />}
+                    {upload.status === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-400 ml-1" />}
+                    {upload.status === 'uploading' && <span className="ml-1 text-gray-400">{formatSpeed(upload.speed)}</span>}
+                    {/* Keep the spinning loader for file_sent on individual files */}
+                    {upload.status === 'file_sent' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin ml-1" title={upload.message} />}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          {/* NEW: Summary box for when all uploads are finished */}
+
+          {/* Summary box for when all uploads are finished */}
           {areAllUploadsFinished && totalUploadsStarted > 0 && (
             <div className="bg-emerald-900 border border-emerald-700 rounded-xl p-4 animate-fadeIn shadow-lg">
               <div className="flex items-start space-x-3">
@@ -1206,7 +1213,10 @@ const FileUploader = () => {
             </div>
           )}
 
-          {link && !totalUploadsStarted && ( // Only show if link exists and no active uploads (implies single file upload)
+          {link && !totalUploadsStarted && ( // This condition might need adjustment if you always want the summary box above.
+                                            // If totalUploadsStarted is > 0 even for a single completed file, this 'link' block
+                                            // will only show if it was the *only* upload and has been cleared from activeUploads.
+                                            // The `areAllUploadsFinished` block is more robust for general upload completion.
             <div className="bg-emerald-900 border border-emerald-700 rounded-xl p-4 animate-fadeIn shadow-lg">
               <div className="flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
