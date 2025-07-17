@@ -355,7 +355,86 @@ app.get("/list", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to list files: " + error.message });
   }
 });
+app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
+  try {
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
 
+    if (!requestedFilePath.startsWith(userVaultPrefix + '/')) {
+      return res.status(403).json({ error: "Access denied. File is not in your vault." });
+    }
+
+    const fileName = basename(requestedFilePath);
+    const fileExtension = getFileExtension(fileName);
+
+    // Fetch object metadata to get ContentType and Size
+    const headParams = {
+      Bucket: BUCKET_NAME,
+      Key: requestedFilePath
+    };
+    let headResponse;
+    try {
+        headResponse = await storjClient.send(new HeadObjectCommand(headParams));
+    } catch (headError) {
+        if (headError.name === 'NotFound') {
+            return res.status(404).json({ error: "File not found for preview." });
+        }
+        throw headError; // Re-throw other errors
+    }
+
+    const contentType = headResponse.ContentType || getMimeType(fileName);
+    const fileSize = headResponse.ContentLength;
+
+    // Determine preview strategy based on file type
+    if (isImageFile(fileName) || isVideoFile(fileName) || fileExtension === 'pdf') {
+      // For images, videos (for thumbnail), and PDFs, directly redirect to the /f endpoint or provide the URL.
+      // The frontend will embed this. We can serve the full file or a smaller version if needed.
+      // For simplicity, let's just tell the frontend to use the existing /f endpoint for these.
+      // If you want smaller image previews, you'd integrate sharp here for images.
+      res.json({
+        success: true,
+        type: 'url',
+        url: `${BACKEND_URL}/f/${encodeURIComponent(requestedFilePath)}`,
+        contentType: contentType,
+        message: "URL provided for direct preview embedding."
+      });
+    } else if (isCodeFile(fileName) || fileExtension === 'txt' || fileExtension === 'json' || fileExtension === 'csv' || fileExtension === 'html') {
+        // For text-based files, fetch a snippet of the content
+        const getParams = {
+            Bucket: BUCKET_NAME,
+            Key: requestedFilePath,
+            Range: `bytes=0-1023` // Fetch first 1KB for snippet
+        };
+        const response = await storjClient.send(new GetObjectCommand(getParams));
+        const streamToString = (stream) =>
+            new Promise((resolve, reject) => {
+                const chunks = [];
+                stream.on("data", (chunk) => chunks.push(chunk));
+                stream.on("error", reject);
+                stream.on("end", () => resolve(Buffer.concat(chunks).toString('utf8')));
+            });
+
+        const textContent = await streamToString(response.Body);
+        
+        res.json({
+            success: true,
+            type: 'text',
+            content: textContent.substring(0, 1000) + (fileSize > 1000 ? '...' : ''), // Max 1000 chars for preview
+            contentType: contentType
+        });
+    } else {
+      // For all other unsupported types for direct preview
+      res.status(400).json({
+        error: "No direct preview available for this file type.",
+        type: 'none'
+      });
+    }
+
+  } catch (error) {
+    console.error("Preview endpoint error:", error);
+    res.status(500).json({ error: "Failed to generate preview: " + error.message });
+  }
+});
 app.get("/f/:filepath(*)", authenticateToken, async (req, res) => {
   try {
     const userVaultPrefix = req.userVaultPrefix;
