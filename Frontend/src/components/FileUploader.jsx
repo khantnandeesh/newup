@@ -763,99 +763,50 @@ const FileUploader = () => {
                 <p className="text-sm font-medium text-white w-full truncate" title={item.name}>{item.name}</p>
                 {!item.isFolder && <p className="text-xs text-gray-500">{formatFileSize(item.size)}</p>}
             </div>
-            <button onClick={(e) => handleContextMenu(e, item)} className="absolute top-2 right-2 p-1.5 text-gray-500 rounded-full hover:bg-[#333] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                <MoreVertical className="w-4 h-4" />
-            </button>
+            <button onClick={(e) => handleContextMenu(e, item)} className="absolute top-2 right-2 p-1.5 text-gray-500 rounded-full hover:bg-[#333] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><MoreVertical className="w-4 h-4" /></button>
         </div>
     );
 
     const ItemRow = ({ item }) => (
-        <tr
-            className="group border-b border-[#222] hover:bg-[#1a1a1a] cursor-pointer transition-colors"
-            onClick={() => handleItemAction('open', item)}
-            onContextMenu={(e) => handleContextMenu(e, item)}
-            onMouseEnter={(e) => handleMouseEnterItem(e, item)}
-            onMouseLeave={handleMouseLeaveItem}
-        >
-            <td className="px-6 py-3 whitespace-nowrap text-sm text-white font-medium">
-                <div className="flex items-center">
-                    <div className="flex-shrink-0 h-5 w-5 mr-3 text-gray-400">{getFileIcon(item)}</div>
-                    <span className="truncate max-w-xs">{item.name}</span>
-                </div>
-            </td>
-            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-400">
-                {item.modified ? new Date(item.modified).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-            </td>
-            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-400">
-                {item.isFolder ? 'Folder' : (item.name.split('.').pop() || 'File').toUpperCase()}
-            </td>
+        <tr className="group border-b border-[#222] hover:bg-[#1a1a1a] cursor-pointer transition-colors"
+            onClick={() => handleItemAction('open', item)} onContextMenu={(e) => handleContextMenu(e, item)} onMouseEnter={(e) => handleMouseEnterItem(e, item)} onMouseLeave={handleMouseLeaveItem}>
+            <td className="px-6 py-3 whitespace-nowrap text-sm text-white font-medium"><div className="flex items-center"><div className="flex-shrink-0 h-5 w-5 mr-3 text-gray-400">{getFileIcon(item)}</div><span className="truncate max-w-xs">{item.name}</span></div></td>
+            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-400">{item.modified ? new Date(item.modified).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-400">{item.isFolder ? 'Folder' : (item.name.split('.').pop() || 'File').toUpperCase()}</td>
             <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-400 text-right">{item.isFolder ? '—' : formatFileSize(item.size)}</td>
-            <td className="px-6 py-3 text-right">
-                <button onClick={(e) => handleContextMenu(e, item)} className="p-1.5 text-gray-500 rounded-full hover:bg-[#333] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                    <MoreVertical className="w-4 h-4" />
-                </button>
-            </td>
+            <td className="px-6 py-3 text-right"><button onClick={(e) => handleContextMenu(e, item)} className="p-1.5 text-gray-500 rounded-full hover:bg-[#333] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><MoreVertical className="w-4 h-4" /></button></td>
         </tr>
     );
 
     const AppLayout = () => (
         <div className="flex h-screen bg-[#0a0a0a] text-white font-sans">
             <aside className="w-64 flex-shrink-0 bg-[#111111] border-r border-[#222] flex flex-col p-4">
-                <div className="flex items-center space-x-2 mb-8">
-                    <div className="p-2 bg-white rounded-md"><Cloud className="w-5 h-5 text-black" /></div>
-                    <h1 className="text-xl font-bold">DataVault</h1>
-                </div>
+                <div className="flex items-center space-x-2 mb-8"><div className="p-2 bg-white rounded-md"><Cloud className="w-5 h-5 text-black" /></div><h1 className="text-xl font-bold">DataVault</h1></div>
                 <div className="relative mb-6">
-                    <button ref={newButtonRef} onClick={toggleNewMenu} className="flex items-center justify-center w-full space-x-2 px-4 py-2 bg-white text-black rounded-md font-semibold hover:bg-gray-200 transition">
-                        <Plus className="w-5 h-5" /><span>New</span>
-                    </button>
-                    {showNewMenu && (
-                        <div className="absolute left-0 mt-2 w-full bg-[#222] rounded-md shadow-2xl border border-[#333] z-20 new-menu-dropdown">
-                            <button onClick={() => { document.getElementById('file-input').click(); setShowNewMenu(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-[#333]">
-                                <Upload className="w-4 h-4 mr-3" /> File Upload
-                            </button>
-                            <button onClick={() => { createFolder(); setShowNewMenu(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-[#333]">
-                                <Folder className="w-4 h-4 mr-3" /> New Folder
-                            </button>
-                        </div>
-                    )}
+                    <button ref={newButtonRef} onClick={toggleNewMenu} className="flex items-center justify-center w-full space-x-2 px-4 py-2 bg-white text-black rounded-md font-semibold hover:bg-gray-200 transition"><Plus className="w-5 h-5" /><span>New</span></button>
+                    {showNewMenu && (<div className="absolute left-0 mt-2 w-full bg-[#222] rounded-md shadow-2xl border border-[#333] z-20 new-menu-dropdown">
+                        <button onClick={() => { document.getElementById('file-input').click(); setShowNewMenu(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-[#333]"><Upload className="w-4 h-4 mr-3" /> File Upload</button>
+                        <button onClick={() => { createFolder(); setShowNewMenu(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-[#333]"><Folder className="w-4 h-4 mr-3" /> New Folder</button>
+                    </div>)}
                 </div>
                 <input id="file-input" type="file" className="hidden" onChange={handleFileSelect} disabled={isAnyUploading} multiple />
                 <nav className="space-y-1 flex-grow">
-                    {[
-                        { name: 'My Drive', icon: Home, path: '' }, { name: 'Starred', icon: Star, path: 'Starred' },
-                        { name: 'Recent', icon: Clock, path: 'Recent' }, { name: 'Trash', icon: Trash2, path: 'Trash' },
-                    ].map(navItem => (
-                        <button key={navItem.name} onClick={() => navigateToFolder(navItem.path)}
-                            className={`flex items-center w-full px-3 py-2 rounded-md text-sm font-medium transition-colors ${currentPath === navItem.path ? 'bg-[#222] text-white' : 'text-gray-400 hover:bg-[#222] hover:text-white'}`}>
-                            <navItem.icon className="w-5 h-5 mr-3" /><span>{navItem.name}</span>
-                        </button>
+                    {[{ name: 'My Drive', icon: Home, path: '' }, { name: 'Starred', icon: Star, path: 'Starred' }, { name: 'Recent', icon: Clock, path: 'Recent' }, { name: 'Trash', icon: Trash2, path: 'Trash' }].map(navItem => (
+                        <button key={navItem.name} onClick={() => navigateToFolder(navItem.path)} className={`flex items-center w-full px-3 py-2 rounded-md text-sm font-medium transition-colors ${currentPath === navItem.path ? 'bg-[#222] text-white' : 'text-gray-400 hover:bg-[#222] hover:text-white'}`}><navItem.icon className="w-5 h-5 mr-3" /><span>{navItem.name}</span></button>
                     ))}
                 </nav>
-                <div className="mt-auto">
-                    <button onClick={handleLogout} className="flex items-center w-full px-3 py-2 rounded-md text-sm font-medium text-gray-400 hover:bg-[#222] hover:text-white transition-colors">
-                        <LogOut className="w-5 h-5 mr-3" /><span>Logout & Switch Vault</span>
-                    </button>
-                </div>
+                <div className="mt-auto"><button onClick={handleLogout} className="flex items-center w-full px-3 py-2 rounded-md text-sm font-medium text-gray-400 hover:bg-[#222] hover:text-white transition-colors"><LogOut className="w-5 h-5 mr-3" /><span>Logout & Switch Vault</span></button></div>
             </aside>
             <div className="flex-1 flex flex-col overflow-hidden">
                 <header className="flex-shrink-0 h-20 flex items-center justify-between px-8 border-b border-[#222]">
                     <nav className="flex items-center text-sm">
-                        {breadcrumbs.map((crumb, index) => (
-                            <React.Fragment key={crumb.path}>
-                                <button onClick={() => navigateToFolder(crumb.path)} className={`px-2 py-1 rounded-md transition-colors ${index === breadcrumbs.length - 1 ? 'font-semibold text-white' : 'text-gray-500 hover:text-white'}`}>
-                                    {crumb.name}
-                                </button>
-                                {index < breadcrumbs.length - 1 && <ChevronRight className="w-4 h-4 text-gray-600 mx-1" />}
-                            </React.Fragment>
-                        ))}
+                        {breadcrumbs.map((crumb, index) => (<React.Fragment key={crumb.path}>
+                            <button onClick={() => navigateToFolder(crumb.path)} className={`px-2 py-1 rounded-md transition-colors ${index === breadcrumbs.length - 1 ? 'font-semibold text-white' : 'text-gray-500 hover:text-white'}`}>{crumb.name}</button>
+                            {index < breadcrumbs.length - 1 && <ChevronRight className="w-4 h-4 text-gray-600 mx-1" />}
+                        </React.Fragment>))}
                     </nav>
                     <div className="flex items-center space-x-4">
-                        <div className="relative w-72">
-                            <Search className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                            <input type="text" placeholder="Search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-[#111] border border-[#222] rounded-md text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-white/50" />
-                        </div>
+                        <div className="relative w-72"><Search className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" /><input type="text" placeholder="Search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-[#111] border border-[#222] rounded-md text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-white/50" /></div>
                         <div className="flex items-center bg-[#111] border border-[#222] rounded-md p-0.5">
                             <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-[#333]' : 'text-gray-500 hover:text-white'}`}><Grid className="w-5 h-5" /></button>
                             <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-[#333]' : 'text-gray-500 hover:text-white'}`}><List className="w-5 h-5" /></button>
@@ -863,47 +814,20 @@ const FileUploader = () => {
                     </div>
                 </header>
                 <main className="flex-1 overflow-y-auto p-8" onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
-                    {dragActive && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 flex items-center justify-center pointer-events-none">
-                            <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-white rounded-2xl">
-                                <Upload className="w-16 h-16 text-white mb-4" />
-                                <p className="text-xl font-semibold">Drop files to upload</p>
-                            </div>
-                        </div>
-                    )}
+                    {dragActive && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 flex items-center justify-center pointer-events-none"><div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-white rounded-2xl"><Upload className="w-16 h-16 text-white mb-4" /><p className="text-xl font-semibold">Drop files to upload</p></div></div>)}
                     {Object.keys(activeUploads).length > 0 && <UploadStatusPanel />}
-                    {filteredItems.length === 0 ? (
-                        <div className="text-center py-20 flex flex-col items-center justify-center text-gray-500">
-                            <FolderOpen className="w-20 h-20 mb-4 text-gray-800" />
-                            <h3 className="text-xl font-medium text-gray-400">This folder is empty</h3>
-                            <p className="text-gray-600">Drop files here or use the 'New' button to upload.</p>
-                        </div>
-                    ) : (
-                        viewMode === 'grid' ? (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                                {filteredItems.map(item => <ItemCard key={item.path} item={item} />)}
-                            </div>
-                        ) : (
-                            <table className="min-w-full">
-                                <thead>
-                                    <tr className="border-b border-[#222]">
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Modified</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                                        <th className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
-                                    </tr>
-                                </thead>
-                                <tbody>{filteredItems.map(item => <ItemRow key={item.path} item={item} />)}</tbody>
-                            </table>
-                        )
-                    )}
+                    {filteredItems.length === 0 ? (<div className="text-center py-20 flex flex-col items-center justify-center text-gray-500"><FolderOpen className="w-20 h-20 mb-4 text-gray-800" /><h3 className="text-xl font-medium text-gray-400">This folder is empty</h3><p className="text-gray-600">Drop files here or use the 'New' button to upload.</p></div>
+                    ) : viewMode === 'grid' ? (<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">{filteredItems.map(item => <ItemCard key={item.path} item={item} />)}</div>
+                    ) : (<table className="min-w-full">
+                        <thead><tr className="border-b border-[#222]"><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Modified</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th><th className="relative px-6 py-3"><span className="sr-only">Actions</span></th></tr></thead>
+                        <tbody>{filteredItems.map(item => <ItemRow key={item.path} item={item} />)}</tbody>
+                    </table>)}
                 </main>
             </div>
             {contextMenu.visible && <ContextMenu />}
             {showProperties && <PropertiesModal />}
             {videoModal.open && <VideoPlayerModal />}
-            {hoveredItem && <FilePreview item={hoveredItem} x={previewCoords.x} y={previewCoords.y} isLoading={previewLoading} content={previewContent} />}
+            {hoveredItem && <FilePreview item={hoveredItem} x={previewCoords.x} y={previewCoords.y} />}
             <style>{`
                 ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #111111; }
                 ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #444; }
@@ -920,9 +844,7 @@ const FileUploader = () => {
                 {areAllUploadsFinished && <button onClick={() => setActiveUploads({})} className="text-gray-500 hover:text-white p-1 rounded-full"><X className="w-4 h-4" /></button>}
             </div>
             <div className="flex items-center space-x-4 mb-3">
-                <div className="w-full bg-[#222] rounded-full h-1.5">
-                    <div className="h-1.5 bg-white rounded-full transition-all duration-300" style={{ width: `${overallProgress}%` }} />
-                </div>
+                <div className="w-full bg-[#222] rounded-full h-1.5"><div className="h-1.5 bg-white rounded-full transition-all duration-300" style={{ width: `${overallProgress}%` }} /></div>
                 <span className="text-sm font-mono text-gray-400">{Math.round(overallProgress)}%</span>
             </div>
             <div className="text-xs text-gray-500 flex justify-between">
@@ -940,10 +862,7 @@ const FileUploader = () => {
                 { label: 'Details', icon: Info, action: 'properties' }, { label: 'Rename', icon: Edit3, action: 'rename' },
                 { label: 'Delete', icon: Trash2, action: 'delete', isDestructive: true },
             ].filter(Boolean).map((menuItem, index) => (
-                <button key={index} onClick={(e) => handleItemAction(menuItem.action, selectedItem, e)}
-                    className={`flex items-center w-full px-3 py-2 text-sm transition-colors ${menuItem.isDestructive ? 'text-red-400 hover:bg-red-900/40' : 'text-gray-200 hover:bg-[#333]'}`}>
-                    <menuItem.icon className="w-4 h-4 mr-3" />{menuItem.label}
-                </button>
+                <button key={index} onClick={(e) => handleItemAction(menuItem.action, selectedItem, e)} className={`flex items-center w-full px-3 py-2 text-sm transition-colors ${menuItem.isDestructive ? 'text-red-400 hover:bg-red-900/40' : 'text-gray-200 hover:bg-[#333]'}`}><menuItem.icon className="w-4 h-4 mr-3" />{menuItem.label}</button>
             ))}
         </div>
     );
@@ -951,10 +870,7 @@ const FileUploader = () => {
     const PropertiesModal = () => (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 flex items-center justify-center p-4" onClick={() => setShowProperties(false)}>
             <div className="w-full max-w-md bg-[#111111] border border-[#222] rounded-lg shadow-2xl p-6" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-start mb-4">
-                    <h2 className="text-xl font-semibold">Properties</h2>
-                    <button onClick={() => setShowProperties(false)} className="p-1 rounded-full text-gray-500 hover:bg-[#333] hover:text-white"><X className="w-5 h-5" /></button>
-                </div>
+                <div className="flex justify-between items-start mb-4"><h2 className="text-xl font-semibold">Properties</h2><button onClick={() => setShowProperties(false)} className="p-1 rounded-full text-gray-500 hover:bg-[#333] hover:text-white"><X className="w-5 h-5" /></button></div>
                 <div className="space-y-3 text-sm">
                     <div className="flex justify-between items-center"><span className="text-gray-400">Name</span><span className="text-white font-medium truncate max-w-[60%]">{selectedItem.name}</span></div>
                     <div className="flex justify-between items-center"><span className="text-gray-400">Type</span><span className="text-white font-medium">{selectedItem.isFolder ? 'Folder' : 'File'}</span></div>
@@ -962,32 +878,77 @@ const FileUploader = () => {
                     <div className="flex justify-between items-center"><span className="text-gray-400">Created</span><span className="text-white font-medium">{selectedItem.created ? new Date(selectedItem.created).toLocaleString() : 'N/A'}</span></div>
                     <div className="flex justify-between items-center"><span className="text-gray-400">Modified</span><span className="text-white font-medium">{selectedItem.lastModified ? new Date(selectedItem.lastModified).toLocaleString() : 'N/A'}</span></div>
                 </div>
-                {renamingItem && renamingItem.path === selectedItem.path && (
-                    <div className="mt-6 pt-4 border-t border-[#222]">
-                        <p className="text-sm font-medium mb-2">Rename Item</p>
-                        <div className="flex items-center space-x-2">
-                            <input type="text" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="flex-1 bg-[#0a0a0a] border border-[#333] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-white/50" />
-                            <button onClick={() => renameItem(selectedItem)} className="px-3 py-1.5 bg-white text-black text-sm font-semibold rounded-md hover:bg-gray-200">Save</button>
-                            <button onClick={() => setRenamingItem(null)} className="px-3 py-1.5 bg-[#333] text-white text-sm font-semibold rounded-md hover:bg-[#444]">Cancel</button>
-                        </div>
+                {renamingItem && renamingItem.path === selectedItem.path && (<div className="mt-6 pt-4 border-t border-[#222]">
+                    <p className="text-sm font-medium mb-2">Rename Item</p>
+                    <div className="flex items-center space-x-2">
+                        <input type="text" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="flex-1 bg-[#0a0a0a] border border-[#333] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-white/50" />
+                        <button onClick={() => renameItem(selectedItem)} className="px-3 py-1.5 bg-white text-black text-sm font-semibold rounded-md hover:bg-gray-200">Save</button>
+                        <button onClick={() => setRenamingItem(null)} className="px-3 py-1.5 bg-[#333] text-white text-sm font-semibold rounded-md hover:bg-[#444]">Cancel</button>
                     </div>
-                )}
+                </div>)}
             </div>
         </div>
     );
 
-    const FilePreview = ({ item, x, y, isLoading, content }) => {
+    const FilePreview = ({ item, x, y }) => {
         if (!item) return null;
+
+        const [isLoading, setIsLoading] = useState(true);
+        const [previewData, setPreviewData] = useState(null);
+        const [objectUrl, setObjectUrl] = useState(null);
+
+        useEffect(() => {
+            setIsLoading(true);
+            setObjectUrl(null);
+            const controller = new AbortController();
+
+            const fetchPreview = async () => {
+                try {
+                    const metaResponse = await fetch(`${BACKEND_URL}/preview/${encodeURIComponent(item.path)}`, {
+                        headers: getAuthHeaders(), signal: controller.signal
+                    });
+                    if (!metaResponse.ok) throw new Error('Could not get preview metadata');
+                    const metaData = await metaResponse.json();
+                    setPreviewData(metaData);
+
+                    if (metaData.type === 'url') {
+                        const contentResponse = await fetch(`${BACKEND_URL}${metaData.url}`, {
+                            headers: getAuthHeaders(), signal: controller.signal
+                        });
+                        if (!contentResponse.ok) throw new Error('Could not fetch preview content');
+                        const blob = await contentResponse.blob();
+                        const objUrl = URL.createObjectURL(blob);
+                        setObjectUrl(objUrl);
+                    }
+                } catch (error) {
+                    if (error.name !== 'AbortError') setPreviewData({ type: 'error', message: 'Preview unavailable' });
+                } finally {
+                    if (!controller.signal.aborted) setIsLoading(false);
+                }
+            };
+
+            fetchPreview();
+
+            return () => {
+                controller.abort();
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+            };
+        }, [item]); // Re-run only when the item prop changes
+
+        const renderContent = () => {
+            if (isLoading) return <Loader2 className="w-8 h-8 animate-spin text-white/50" />;
+            if (!previewData || previewData.type === 'error' || previewData.type === 'none') return <div className="text-center text-gray-500"><Info className="w-6 h-6 mx-auto mb-2" /><p className="text-sm">{previewData?.message || 'No preview'}</p></div>;
+            if (previewData.type === 'url' && objectUrl) {
+                if (isImageFile(item.name)) return <img src={objectUrl} alt={item.name} className="w-full h-full object-contain" />;
+                if (isPdfFile(item.name) || isHtmlFile(item.name)) return <iframe src={objectUrl} title={`${item.name} preview`} className="w-full h-full border-0 bg-white" sandbox="allow-scripts allow-same-origin" />;
+            }
+            if (previewData.type === 'text') return <pre className="w-full h-full text-xs text-gray-300 overflow-auto p-2 whitespace-pre-wrap break-all">{previewData.content}</pre>;
+            return <div className="text-center text-gray-500"><Info className="w-6 h-6 mx-auto mb-2" /><p className="text-sm">Preview not supported</p></div>;
+        };
+
         return (
             <div className="fixed z-50 bg-[#1a1a1a] rounded-lg shadow-xl border border-[#333] p-2 animate-fadeIn" style={{ left: x, top: y, width: '300px', height: '250px' }}>
-                <div className="w-full h-[calc(100%-30px)] flex items-center justify-center overflow-hidden rounded-md relative mb-1 bg-[#111]">
-                    {isLoading ? <Loader2 className="w-8 h-8 animate-spin text-white/50" /> :
-                        !content || content.type === 'error' ? <div className="text-center text-gray-500"><Info className="w-6 h-6 mx-auto mb-2" /><p className="text-sm">{content?.message || 'No preview'}</p></div> :
-                        content.type === 'url' && item.isImage ? <img src={content.url} alt={item.name} className="w-full h-full object-contain" /> :
-                        content.type === 'text' ? <pre className="w-full h-full text-xs text-gray-300 overflow-auto p-2 whitespace-pre-wrap break-all">{content.content}</pre> :
-                        <div className="text-center text-gray-500"><Info className="w-6 h-6 mx-auto mb-2" /><p className="text-sm">Preview not supported</p></div>
-                    }
-                </div>
+                <div className="w-full h-[calc(100%-30px)] flex items-center justify-center overflow-hidden rounded-md relative mb-1 bg-[#111]">{renderContent()}</div>
                 <div className="text-white text-xs px-1.5 py-0.5 rounded-sm truncate w-full text-center">{item.name}</div>
             </div>
         );
@@ -1002,23 +963,8 @@ const FileUploader = () => {
                     onLoadedMetadata={(e) => setVideoState(prev => ({ ...prev, duration: e.target.duration }))}
                     onPlay={() => setVideoState(prev => ({ ...prev, playing: true }))}
                     onPause={() => setVideoState(prev => ({ ...prev, playing: false }))}
-                    autoPlay
+                    autoPlay controls
                 />
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-full relative h-4 mb-2">
-                        <input type="range" min="0" max={videoState.duration || 0} value={videoState.currentTime} onChange={handleSeek}
-                            className="w-full absolute top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded-full appearance-none cursor-pointer video-slider" />
-                    </div>
-                    <div className="flex items-center justify-between text-white">
-                        <div className="flex items-center space-x-4">
-                            <button onClick={togglePlay} className="p-2">{videoState.playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}</button>
-                            <span className="text-xs font-mono">{formatTime(videoState.currentTime)} / {formatTime(videoState.duration)}</span>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                            <button onClick={toggleFullscreen} className="p-2">{videoState.fullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}</button>
-                        </div>
-                    </div>
-                </div>
             </div>
             <h3 className="text-lg font-semibold text-white mt-4">{videoModal.item?.name}</h3>
         </div>
