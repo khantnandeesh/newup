@@ -355,7 +355,7 @@ app.get("/list", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to list files: " + error.message });
   }
 });
-app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
+app.get("/preview/:filepath(*)", async (req, res) => {
   try {
     const userVaultPrefix = req.userVaultPrefix;
     const requestedFilePath = decodeURIComponent(req.params.filepath);
