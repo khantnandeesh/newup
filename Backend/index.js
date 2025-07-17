@@ -219,7 +219,26 @@ app.post("/vault/login", async (req, res) => {
 app.get("/vault/check-auth", authenticateToken, (req, res) => {
   res.json({ authenticated: true, vaultPrefix: req.userVaultPrefix });
 });
+// REPLACE the existing /preview route in your backend with this one.
+
 app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
+  // --- Self-contained Helper Functions to prevent scope issues ---
+  const videoFormats = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.3gp'];
+  const imageFormats = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.bmp', '.tiff'];
+  const textDocumentFormats = ['.doc', '.docx', '.txt', '.xlsx', '.xls', '.ppt', '.pptx']; // Non-renderable docs
+  const codeFormats = ['.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.html', '.css', '.json', '.xml'];
+  const pdfFormats = ['.pdf'];
+  const htmlFormats = ['.html', '.htm'];
+
+  const getFileExtension = (filename) => filename ? filename.toLowerCase().split('.').pop() : '';
+  const isVideoFile = (filename) => videoFormats.includes('.' + getFileExtension(filename));
+  const isImageFile = (filename) => imageFormats.includes('.' + getFileExtension(filename));
+  const isTextDocument = (filename) => textDocumentFormats.includes('.' + getFileExtension(filename));
+  const isCodeFile = (filename) => codeFormats.includes('.' + getFileExtension(filename));
+  const isPdfFile = (filename) => pdfFormats.includes('.' + getFileExtension(filename));
+  const isHtmlFile = (filename) => htmlFormats.includes('.' + getFileExtension(filename));
+  // --- End of Helper Functions ---
+
   try {
     const userVaultPrefix = req.userVaultPrefix;
     const requestedFilePath = decodeURIComponent(req.params.filepath);
@@ -230,25 +249,25 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
 
     const fileName = basename(requestedFilePath);
 
-    // For images, PDFs, and HTML, we tell the frontend the URL to fetch as a blob.
-    if (isImageFile(fileName) || isPdfFile(fileName) || isHtmlFile(fileName)) {
+    // For types that can be rendered via a URL (as a blob)
+    if (isImageFile(fileName) || isVideoFile(fileName) || isPdfFile(fileName) || isHtmlFile(fileName)) {
       return res.json({
         type: "url",
         url: `/f/${encodeURIComponent(requestedFilePath)}`,
       });
     }
 
-    // For code/text files, we'll read the first few KB.
-    if (isCodeFile(fileName) || isDocumentFile(fileName)) {
+    // For types that can be previewed as text snippets
+    if (isCodeFile(fileName) || isTextDocument(fileName)) {
        const getParams = {
         Bucket: BUCKET_NAME,
         Key: requestedFilePath,
-        Range: "bytes=0-4096", // Fetch first 4KB for a snippet
+        Range: "bytes=0-4096", // Fetch first 4KB
       };
       const response = await storjClient.send(new GetObjectCommand(getParams));
       const textContent = await response.Body.transformToString("utf-8");
       
-      const snippet = textContent.split('\n').slice(0, 30).join('\n').substring(0, 2000);
+      const snippet = textContent.length > 2000 ? textContent.substring(0, 2000) + '...' : textContent;
 
       return res.json({
         type: "text",
@@ -256,7 +275,7 @@ app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
       });
     }
     
-    // For other file types, no preview is available.
+    // For all other file types, no preview is available.
     return res.json({ type: "none", message: "Preview not available for this file type." });
 
   } catch (error) {
