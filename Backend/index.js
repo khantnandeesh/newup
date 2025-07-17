@@ -219,6 +219,54 @@ app.post("/vault/login", async (req, res) => {
 app.get("/vault/check-auth", authenticateToken, (req, res) => {
   res.json({ authenticated: true, vaultPrefix: req.userVaultPrefix });
 });
+app.get("/preview/:filepath(*)", authenticateToken, async (req, res) => {
+  try {
+    const userVaultPrefix = req.userVaultPrefix;
+    const requestedFilePath = decodeURIComponent(req.params.filepath);
+
+    if (!requestedFilePath.startsWith(userVaultPrefix + "/")) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+
+    const fileName = basename(requestedFilePath);
+
+    // For images, PDFs, and HTML, we tell the frontend the URL to fetch as a blob.
+    if (isImageFile(fileName) || isPdfFile(fileName) || isHtmlFile(fileName)) {
+      return res.json({
+        type: "url",
+        url: `/f/${encodeURIComponent(requestedFilePath)}`,
+      });
+    }
+
+    // For code/text files, we'll read the first few KB.
+    if (isCodeFile(fileName) || isDocumentFile(fileName)) {
+       const getParams = {
+        Bucket: BUCKET_NAME,
+        Key: requestedFilePath,
+        Range: "bytes=0-4096", // Fetch first 4KB for a snippet
+      };
+      const response = await storjClient.send(new GetObjectCommand(getParams));
+      const textContent = await response.Body.transformToString("utf-8");
+      
+      const snippet = textContent.split('\n').slice(0, 30).join('\n').substring(0, 2000);
+
+      return res.json({
+        type: "text",
+        content: snippet,
+      });
+    }
+    
+    // For other file types, no preview is available.
+    return res.json({ type: "none", message: "Preview not available for this file type." });
+
+  } catch (error) {
+    console.error("Preview error:", error);
+    if (error.name === "NoSuchKey") {
+      return res.status(404).json({ type: "error", message: "File not found." });
+    }
+    return res.status(500).json({ type: "error", message: "Could not load preview." });
+  }
+});
 
 app.post("/upload", authenticateToken, upload.single("file"), async (req, res) => {
   try {
