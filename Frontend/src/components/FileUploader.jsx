@@ -57,7 +57,7 @@ const FileUploader = () => {
 
 
   const [fetchTrigger, setFetchTrigger] = useState(0);
-  const [fetchPath, setFetchPath] = useState('');
+  const [fetchPath, setFetchPath] = useState(null); // Changed to null
 
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newButtonRef = useRef(null);
@@ -215,26 +215,26 @@ const FileUploader = () => {
     }
   }, [getAuthHeaders, isVideoFile, isImageFile, isDocumentFile, isAudioFile, isCodeFile, isArchiveFile, isSpreadsheetFile, isPdfFile, isHtmlFile]);
 
-
-  const setAuthenticatedSession = useCallback((authenticated, token = null) => {
-    setIsAuthenticated(authenticated);
-    if (authenticated) {
-      if (token) {
-        Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
-      }
-      addLog('Authentication successful.');
-      setFetchTrigger(prev => prev + 1);
-      setFetchPath('');
-    } else {
-      Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
-      setItems([]);
-      setLog([]);
-      setCurrentPath('');
-      setParentPath(null);
-      setBreadcrumbs([{ name: 'My Drive', path: '' }]);
-      addLog('Authentication cleared.');
+const setAuthenticatedSession = useCallback((authenticated, token = null) => {
+  setIsAuthenticated(authenticated);
+  if (authenticated) {
+    if (token) {
+      Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
     }
-  }, []);
+    addLog('Authentication successful.');
+    // Set initial path here. No need for fetchTrigger if fetchPath will trigger it.
+    setFetchPath(''); // Set to root path
+  } else {
+    Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
+    setItems([]);
+    setLog([]);
+    setCurrentPath('');
+    setParentPath(null);
+    setBreadcrumbs([{ name: 'My Drive', path: '' }]);
+    addLog('Authentication cleared.');
+    setFetchPath(null); // Reset fetchPath on logout
+  }
+}, []);
 
   const checkAuthStatus = useCallback(async () => {
     setAuthLoading(true);
@@ -265,10 +265,11 @@ const FileUploader = () => {
   }, [checkAuthStatus]);
 
   useEffect(() => {
-    if (isAuthenticated && !authLoading && fetchTrigger > 0) {
-      performFetchItems(fetchPath);
-    }
-  }, [isAuthenticated, authLoading, fetchTrigger, fetchPath, performFetchItems]);
+  // Ensure authenticated, not loading auth, AND fetchPath is explicitly set (not null)
+  if (isAuthenticated && !authLoading && fetchPath !== null) { 
+    performFetchItems(fetchPath);
+  }
+}, [isAuthenticated, authLoading, fetchPath, performFetchItems]); // Removed fetchTrigger from here
 
   // --- NEW: Refined Effect to clean up completed/failed uploads after a delay ---
   useEffect(() => {
