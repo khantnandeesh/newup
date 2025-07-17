@@ -50,28 +50,25 @@ const FileUploader = () => {
   const [previewCoords, setPreviewCoords] = useState({ x: 0, y: 0 });
   const previewTimeoutRef = useRef(null);
 
-  // NEW: State for preview content and its loading state
+  // State for preview content and its loading state
   const [previewContent, setPreviewContent] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const currentPreviewAbortController = useRef(null);
 
 
   const [fetchTrigger, setFetchTrigger] = useState(0);
-  const [fetchPath, setFetchPath] = useState(null); // Changed to null
+  const [fetchPath, setFetchPath] = useState('');
 
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newButtonRef = useRef(null);
 
   const [activeUploads, setActiveUploads] = useState({});
   const uploadXHRs = useRef({});
-  const uploadCleanupTimeouts = useRef({}); // New ref to manage cleanup timeouts
+  const uploadCleanupTimeouts = useRef({}); 
 
-  // --- DERIVED STATE: IMPORTANT CHANGE HERE ---
-  // Now, only 'uploading' status contributes to the 'isAnyUploading' flag
+  // --- DERIVED STATE ---
   const uploadingFiles = Object.values(activeUploads).filter(u => u.status === 'uploading');
   const isAnyUploading = uploadingFiles.length > 0;
-
-  // Use a separate variable to check if *any* file is still being processed/handled (including server-side)
   const isAnyFileBeingProcessed = Object.values(activeUploads).some(u => u.status === 'uploading' || u.status === 'file_sent');
 
   const overallProgress = isAnyUploading
@@ -83,23 +80,23 @@ const FileUploader = () => {
     : 0;
   
   const completedUploadsCount = Object.values(activeUploads).filter(u => u.status === 'completed').length;
-  const totalUploadsStarted = Object.keys(activeUploads).length; // Total files ever added to the upload queue
+  const totalUploadsStarted = Object.keys(activeUploads).length; 
   const areAllUploadsFinished = totalUploadsStarted > 0 && Object.values(activeUploads).every(u => u.status === 'completed' || u.status === 'failed' || u.status === 'aborted');
 
 
   const videoRef = useRef(null);
   const contextMenuRef = useRef(null);
 
-  // --- Constant Data / Helper Functions (can be defined here or outside component) ---
+  // --- Constant Data / Helper Functions ---
   const videoFormats = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.3gp'];
-  const imageFormats = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.bmp', '.tiff']; // Added bmp, tiff
+  const imageFormats = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.bmp', '.tiff'];
   const documentFormats = ['.pdf', '.doc', '.docx', '.txt', '.xlsx', '.xls', '.ppt', '.pptx'];
   const audioFormats = ['.mp3', '.wav', '.aac', '.flac'];
   const codeFormats = ['.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.html', '.css', '.json', '.xml'];
   const archiveFormats = ['.zip', '.rar', '.7z', '.tar', '.gz'];
   const spreadsheetFormats = ['.xls', '.xlsx', '.csv'];
-  const pdfFormats = ['.pdf']; // New: for PDF identification
-  const htmlFormats = ['.html', '.htm']; // New: for HTML identification
+  const pdfFormats = ['.pdf']; 
+  const htmlFormats = ['.html', '.htm']; 
 
   const getFileExtension = (filename) => filename.toLowerCase().split('.').pop();
   const isVideoFile = (filename) => videoFormats.includes('.' + getFileExtension(filename));
@@ -109,8 +106,8 @@ const FileUploader = () => {
   const isCodeFile = (filename) => codeFormats.includes('.' + getFileExtension(filename));
   const isArchiveFile = (filename) => archiveFormats.includes('.' + getFileExtension(filename));
   const isSpreadsheetFile = (filename) => spreadsheetFormats.includes('.' + getFileExtension(filename));
-  const isPdfFile = (filename) => pdfFormats.includes('.' + getFileExtension(filename)); // New helper
-  const isHtmlFile = (filename) => htmlFormats.includes('.' + getFileExtension(filename)); // New helper
+  const isPdfFile = (filename) => pdfFormats.includes('.' + getFileExtension(filename)); 
+  const isHtmlFile = (filename) => htmlFormats.includes('.' + getFileExtension(filename)); 
 
   const addLog = (msg) => {
     setLog((l) => [...l, `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -129,7 +126,7 @@ const FileUploader = () => {
   };
 
 
-  // --- Callback Functions (defined after states and derived states) ---
+  // --- Callback Functions ---
   const getAuthHeaders = useCallback(() => {
     const token = Cookies.get(VAULT_TOKEN_COOKIE_NAME);
     return token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -175,8 +172,8 @@ const FileUploader = () => {
             isCode: isFile ? isCodeFile(displayName) : false,
             isArchive: isFile ? isArchiveFile(displayName) : false,
             isSpreadsheet: isFile ? isSpreadsheetFile(displayName) : false,
-            isPdf: isFile ? isPdfFile(displayName) : false, // New: PDF flag
-            isHtml: isFile ? isHtmlFile(displayName) : false, // New: HTML flag
+            isPdf: isFile ? isPdfFile(displayName) : false, 
+            isHtml: isFile ? isHtmlFile(displayName) : false, 
             downloadUrl: isFile ? `${BACKEND_URL}/f/${encodeURIComponent(item.path)}` : null,
             streamUrl: isFile && isVideoFile(displayName) ? `${BACKEND_URL}/stream/${encodeURIComponent(item.path)}` : null
           };
@@ -215,26 +212,26 @@ const FileUploader = () => {
     }
   }, [getAuthHeaders, isVideoFile, isImageFile, isDocumentFile, isAudioFile, isCodeFile, isArchiveFile, isSpreadsheetFile, isPdfFile, isHtmlFile]);
 
-const setAuthenticatedSession = useCallback((authenticated, token = null) => {
-  setIsAuthenticated(authenticated);
-  if (authenticated) {
-    if (token) {
-      Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
+
+  const setAuthenticatedSession = useCallback((authenticated, token = null) => {
+    setIsAuthenticated(authenticated);
+    if (authenticated) {
+      if (token) {
+        Cookies.set(VAULT_TOKEN_COOKIE_NAME, token, { expires: 3650, secure: false, sameSite: 'Lax' });
+      }
+      addLog('Authentication successful.');
+      setFetchTrigger(prev => prev + 1);
+      setFetchPath('');
+    } else {
+      Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
+      setItems([]);
+      setLog([]);
+      setCurrentPath('');
+      setParentPath(null);
+      setBreadcrumbs([{ name: 'My Drive', path: '' }]);
+      addLog('Authentication cleared.');
     }
-    addLog('Authentication successful.');
-    // Set initial path here. No need for fetchTrigger if fetchPath will trigger it.
-    setFetchPath(''); // Set to root path
-  } else {
-    Cookies.remove(VAULT_TOKEN_COOKIE_NAME);
-    setItems([]);
-    setLog([]);
-    setCurrentPath('');
-    setParentPath(null);
-    setBreadcrumbs([{ name: 'My Drive', path: '' }]);
-    addLog('Authentication cleared.');
-    setFetchPath(null); // Reset fetchPath on logout
-  }
-}, []);
+  }, []);
 
   const checkAuthStatus = useCallback(async () => {
     setAuthLoading(true);
@@ -264,31 +261,29 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
     checkAuthStatus();
   }, [checkAuthStatus]);
 
+  // FIX FOR INFINITE REQUESTS: Removed performFetchItems from dependency array
   useEffect(() => {
-  // Ensure authenticated, not loading auth, AND fetchPath is explicitly set (not null)
-  if (isAuthenticated && !authLoading && fetchPath !== null) { 
-    performFetchItems(fetchPath);
-  }
-}, [isAuthenticated, authLoading, fetchPath, performFetchItems]); // Removed fetchTrigger from here
+    if (isAuthenticated && !authLoading && fetchTrigger > 0) {
+      performFetchItems(fetchPath);
+    }
+  }, [isAuthenticated, authLoading, fetchTrigger, fetchPath]); 
 
-  // --- NEW: Refined Effect to clean up completed/failed uploads after a delay ---
+  // --- Effect to clean up completed/failed uploads after a delay ---
   useEffect(() => {
-    const activeTimeouts = uploadCleanupTimeouts.current; // Get ref to object storing timeouts
+    const activeTimeouts = uploadCleanupTimeouts.current; 
 
     Object.keys(activeUploads).forEach(fileId => {
       const upload = activeUploads[fileId];
-      // If it's a finished status AND it hasn't been scheduled for cleanup yet
       if ((upload.status === 'completed' || upload.status === 'failed' || upload.status === 'aborted') && !activeTimeouts[fileId]) {
         activeTimeouts[fileId] = setTimeout(() => {
           setActiveUploads(prev => {
             const newState = { ...prev };
-            delete newState[fileId]; // Remove the entry
+            delete newState[fileId]; 
             return newState;
           });
-          delete activeTimeouts[fileId]; // Remove from ref once timeout fires
-        }, 5000); // Clear after 5 seconds
+          delete activeTimeouts[fileId]; 
+        }, 5000); 
       } else if (upload.status === 'uploading' || upload.status === 'file_sent' || upload.status === 'pending') {
-        // If it's an active status, ensure any pending cleanup for it is cancelled
         if (activeTimeouts[fileId]) {
           clearTimeout(activeTimeouts[fileId]);
           delete activeTimeouts[fileId];
@@ -296,12 +291,11 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
       }
     });
 
-    // Cleanup function for the effect: clear ALL pending timeouts if component unmounts
     return () => {
       Object.values(activeTimeouts).forEach(clearTimeout);
-      uploadCleanupTimeouts.current = {}; // Reset the ref object
+      uploadCleanupTimeouts.current = {}; 
     };
-  }, [activeUploads]); // Dependency: re-run effect whenever activeUploads changes
+  }, [activeUploads]);
 
 
   const handleAuth = async (endpoint) => {
@@ -345,7 +339,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
     setSearchTerm('');
     setFilterType('all');
     setFetchPath(path);
-    setFetchTrigger(prev => prev + 1);
+    setFetchTrigger(prev => prev + 1); // Still useful for forcing a refresh if path is identical
   };
 
   const navigateUp = () => {
@@ -427,7 +421,6 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
         }
       });
       xhr.addEventListener('load', () => {
-        // File bytes have been sent to the server. Now await server response.
         setActiveUploads(prev => ({
           ...prev,
           [fileId]: { ...prev[fileId], progress: 100, speed: 0, status: 'file_sent', message: 'Processing on server...' }
@@ -445,7 +438,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
                   [fileId]: { ...prev[fileId], progress: 100, status: 'completed', message: 'Upload successful!' }
                 }));
                 addLog(`Upload of ${file.name} completed successfully`);
-                // FIX: Removed setFetchPath(currentPath); only trigger refresh
+                // FIX APPLIED: Removed redundant setFetchPath(currentPath);
                 setFetchTrigger(prev => prev + 1); 
               } else {
                 setActiveUploads(prev => ({
@@ -601,7 +594,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
 
       if (response.ok) {
         addLog(`${itemType.charAt(0).toUpperCase() + itemType.slice(1)} deleted: ${itemName}`);
-        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        // FIX APPLIED: Removed redundant setFetchPath(currentPath);
         setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
@@ -635,7 +628,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
         setRenamingItem(null);
         setNewItemName('');
         setShowProperties(false);
-        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        // FIX APPLIED: Removed redundant setFetchPath(currentPath);
         setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
@@ -669,7 +662,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
       if (response.ok) {
         const result = await response.json();
         addLog(`Folder created: ${result.folder.name}`);
-        // FIX: Removed setFetchPath(currentPath); only trigger refresh
+        // FIX APPLIED: Removed redundant setFetchPath(currentPath);
         setFetchTrigger(prev => prev + 1); 
       } else {
         const errorData = await response.json();
@@ -747,13 +740,13 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
     if (item.isArchive) {
         return <FileArchive className="w-full h-full text-orange-400" />;
     }
-    if (item.isPdf) { // Specific icon for PDF
+    if (item.isPdf) { 
       return <FileText className="w-full h-full text-red-500" />;
     }
-    if (item.isHtml) { // Specific icon for HTML
+    if (item.isHtml) { 
       return <FileCode className="w-full h-full text-blue-300" />; 
     }
-    if (item.isDocument) { // General document fallback
+    if (item.isDocument) { 
         return <FileText className="w-full h-full text-gray-400" />;
     }
     return <FileText className="w-full h-full text-gray-400" />;
@@ -773,8 +766,8 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
       (filterType === 'code' && item.isCode) ||
       (filterType === 'archive' && item.isArchive) ||
       (filterType === 'spreadsheet' && item.isSpreadsheet) ||
-      (filterType === 'pdf' && item.isPdf) || // Added PDF to filter
-      (filterType === 'html' && item.isHtml); // Added HTML to filter
+      (filterType === 'pdf' && item.isPdf) || 
+      (filterType === 'html' && item.isHtml); 
 
     return matchesSearch && matchesFilter;
   });
@@ -846,10 +839,10 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
         return;
       }
 
-      const rect = targetElement.getBoundingClientRect(); // Use targetElement here
+      const rect = targetElement.getBoundingClientRect(); 
       const viewportWidth = window.innerWidth;
-      const previewWidth = 300; // Increased preview width for text/PDF
-      const previewHeight = 250; // Increased preview height for text/PDF
+      const previewWidth = 300; 
+      const previewHeight = 250; 
 
       let xPos = rect.right + 10;
       let yPos = rect.top;
@@ -867,13 +860,13 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
       }
 
       setPreviewCoords({ x: xPos, y: yPos });
-      setHoveredItem(item); // Set hovered item to trigger FilePreview render
-      setPreviewLoading(true); // Indicate loading state for the preview pop-up
+      setHoveredItem(item); 
+      setPreviewLoading(true); 
 
       // Fetch preview content from the new backend endpoint
       try {
         const controller = new AbortController();
-        currentPreviewAbortController.current = controller; // Store controller to abort later
+        currentPreviewAbortController.current = controller; 
         const signal = controller.signal;
 
         const headers = getAuthHeaders();
@@ -884,7 +877,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
           throw new Error(data.error || 'Failed to fetch preview data from backend.');
         }
 
-        setPreviewContent(data); // Set the received preview data
+        setPreviewContent(data); 
       } catch (error) {
         if (error.name === 'AbortError') {
           console.log(`Preview fetch for ${item.name} aborted.`);
@@ -893,8 +886,8 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
           setPreviewContent({ type: 'error', message: 'Failed to load preview: ' + error.message });
         }
       } finally {
-        setPreviewLoading(false); // Always stop loading, even on error
-        currentPreviewAbortController.current = null; // Clear controller after fetch
+        setPreviewLoading(false); 
+        currentPreviewAbortController.current = null; 
       }
     }, 500); // 500ms delay before attempting to fetch
   };
@@ -904,18 +897,18 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
   const handleMouseLeaveItem = () => {
     clearTimeout(previewTimeoutRef.current);
     if (currentPreviewAbortController.current) {
-      currentPreviewAbortController.current.abort(); // Abort any ongoing fetch
+      currentPreviewAbortController.current.abort(); 
       currentPreviewAbortController.current = null;
     }
-    setHoveredItem(null); // This will hide the FilePreview component
-    setPreviewContent(null); // Clear content immediately
-    setPreviewLoading(false); // Reset loading state
+    setHoveredItem(null); 
+    setPreviewContent(null); 
+    setPreviewLoading(false); 
   };
 
 
   // UPDATED FilePreview Component
   const FilePreview = ({ item, x, y, isLoading, content }) => { 
-    if (!item) return null; // Ensure item exists
+    if (!item) return null; 
 
     const renderContent = () => {
       if (isLoading) {
@@ -939,7 +932,7 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
         );
       }
 
-      if (content.type === 'url') { // For images, videos, PDFs from backend /preview endpoint
+      if (content.type === 'url') { 
           if (item.isImage) {
               return (
                   <img
@@ -952,9 +945,8 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
           } else if (item.isVideo) {
               return (
                   <>
-                      {/* You might want a video player here, or a static thumbnail */}
                       <img
-                          src={'/video-placeholder.png'} // Use a generic video placeholder for hover
+                          src={'/video-placeholder.png'} 
                           alt={item.name}
                           className="w-full h-full object-cover"
                           onError={(e) => { e.target.onerror = null; e.target.src = '/video-placeholder.png'; }}
@@ -962,15 +954,13 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
                       <Play className="absolute w-10 h-10 text-white/80" />
                   </>
               );
-          } else if (item.isPdf || item.isHtml) { // PDF and HTML will use iframe with the provided URL
+          } else if (item.isPdf || item.isHtml) { 
               return (
                   <iframe
                       src={content.url}
                       title={`${item.name} preview`}
                       className="w-full h-full border-0"
-                      // Crucial for security and to potentially allow embedding from a different origin if backend sets appropriate headers
-                      // sandbox="allow-scripts allow-same-origin allow-popups" // Add allow-popups if needed for PDF viewers
-                      sandbox="allow-scripts allow-same-origin" // Good default for simple embedding
+                      sandbox="allow-scripts allow-same-origin" 
                   />
               );
           }
@@ -981,7 +971,6 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
           </pre>
         );
       } else {
-        // Fallback for any unexpected content type from backend
         return (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center text-sm p-2">
             <Info className="w-6 h-6 mb-2" />
@@ -1258,8 +1247,8 @@ const setAuthenticatedSession = useCallback((authenticated, token = null) => {
                 <option value="code">Code</option>
                 <option value="archive">Archives</option>
                 <option value="spreadsheet">Spreadsheets</option>
-                <option value="pdf">PDFs</option> {/* Added filter option */}
-                <option value="html">HTML</option> {/* Added filter option */}
+                <option value="pdf">PDFs</option> 
+                <option value="html">HTML</option> 
               </select>
               {/* View Toggle */}
               <div className="flex items-center bg-gray-800 rounded-lg p-0.5">
