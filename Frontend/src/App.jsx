@@ -218,11 +218,27 @@ const App = () => {
     }
   };
 
-  const handleDownload = (item) => {
-    const downloadUrl = `${API_BASE_URL}${item.downloadUrl}`;
-    window.open(downloadUrl, '_blank');
+  // UPDATED: This function now uses axios to download the file with the auth token.
+  const handleDownload = async (item) => {
+    try {
+      const response = await axios.get(`/f/${encodeURIComponent(item.path)}`, {
+        responseType: 'blob' // Important: treat the response as a binary blob
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', item.name);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showMessageBox('Download started!');
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      showMessageBox('Failed to download file.', 'error');
+    }
   };
-
+  
   const fetchPreview = async (item) => {
     try {
       const response = await axios.get(`/preview/${encodeURIComponent(item.path)}`);
@@ -478,7 +494,7 @@ const App = () => {
             <div className="flex items-center justify-center h-full text-gray-400">
               Select a file to see a preview.
             </div>
-          )}
+            )}
         </div>
       </div>
     </div>
